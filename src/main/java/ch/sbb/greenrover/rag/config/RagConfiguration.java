@@ -45,7 +45,7 @@ public class RagConfiguration {
                 .client(client)
                 .modelId("eu.amazon.nova-pro-v1:0")
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(0.7)
+                        .temperature(0.1)
                         .maxOutputTokens(1000)
                         .build())
                 .build();
