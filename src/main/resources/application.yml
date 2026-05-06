@@ -5,6 +5,9 @@ spring:
     banner-mode: off
 
 confluence:
+  api:
+    url: ${confluence.base-url}
+    token: ${confluence.token}
   export-dir: messaging_support_export
   base-url: https://confluence.sbb.ch
   start-page-id: 1262683220 # sttrs messaging

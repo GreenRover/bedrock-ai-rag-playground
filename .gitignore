@@ -2,3 +2,4 @@ target
 .mvn
 .env
 src/main/resources/messaging_support_corpus.txt
+messaging_support_export

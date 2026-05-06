@@ -1,9 +1,9 @@
 package ch.sbb.greenrover.rag.scraper;
 
 import ch.sbb.greenrover.rag.service.BedrockMediaTranslationService;
+import ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -28,10 +28,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
 
+import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHMENT_PREFIX;
+import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHMENT_SUFFIX;
+
 @SuppressWarnings("SpringAutowiredFieldsWarningInspection")
 @Slf4j
 @Component
 public class ConfluenceIncrementalScraper implements ApplicationRunner {
+
+    private static final String CONFLUENCE_STORAGE_VERSION_EXPAND = "?expand=version";
+    private static final String CONFLUENCE_STORAGE_BODY_EXPAND = "?expand=body.storage";
+    private static final String CONFLUENCE_CHILD_PAGE_LIMIT_100 = "/child/page?limit=100";
+    private static final String CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100 = "/child/attachment?limit=100";
+    private static final String CONFLUENCE_API_CONTENT_PATH = "/rest/api/content/";
 
     @Value("${confluence.base-url}")
     private String CONFLUENCE_URL; // e.g. https://your-domain.atlassian.net/wiki
@@ -50,18 +59,27 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
     private Path STATE_FILE;
     private static final Path CORPUS_FILE = Path.of("src/main/resources/messaging_support_corpus.txt");
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
     private Map<String, Integer> syncState = new HashMap<>();
 
     @Autowired
     private BedrockMediaTranslationService bedrockMediaTranslationService;
 
+    @Autowired
+    private ConfluenceToMarkdownService confluenceToMarkdownService;
+
     @PostConstruct
     public void init() {
         EXPORT_DIR = Path.of(exportDirString);
         ASSETS_DIR = EXPORT_DIR.resolve("assets");
         STATE_FILE = EXPORT_DIR.resolve("sync_state.json");
+
+        if (BEARER_TOKEN == null || BEARER_TOKEN.trim().isEmpty()) {
+            throw new IllegalArgumentException("confluence.token (BEARER_TOKEN) must not be empty");
+        }
     }
 
     @Override
@@ -81,7 +99,7 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
         if (resync || translate || rebuild) {
             log.info("CLI argument detected. Running specific scraper tasks...");
             Files.createDirectories(EXPORT_DIR);
-            
+
             if (resync) {
                 resyncConfluence();
             }
@@ -113,7 +131,7 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
     private void processPageAndChildren(String pageId, String parentId, int depth, String titlePath) throws Exception {
         // Fetch page metadata (ID, Title, Version) WITHOUT the heavy body
-        JsonNode pageMeta = getConfluenceApi("/rest/api/content/" + pageId + "?expand=version");
+        JsonNode pageMeta = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_VERSION_EXPAND);
         int remoteVersion = pageMeta.at("/version/number").asInt();
         String title = pageMeta.get("title").asString();
         String currentTitlePath = titlePath == null || titlePath.isEmpty() ? title : titlePath + " > " + title;
@@ -125,30 +143,30 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
             log.info("-> Fetching new/updated content for: {} (v{})", title, remoteVersion);
 
             // Fetch heavy content payload
-            JsonNode pageContent = getConfluenceApi("/rest/api/content/" + pageId + "?expand=body.storage");
+            JsonNode pageContent = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_BODY_EXPAND);
             String htmlContent = pageContent.at("/body/storage/value").asString();
 
-            // Convert HTML to clean text using JSoup
-            String cleanText = Jsoup.parse(htmlContent).text();
-            
-            String url = CONFLUENCE_URL.replaceAll("/wiki/?$", "") + pageMeta.at("/_links/webui").asText("");
-            
+            // Convert HTML to clean text/markdown
+            String markdownBody = confluenceToMarkdownService.convertToMarkdown(htmlContent, pageId);
+
+            String url = CONFLUENCE_URL.replaceAll("/wiki/?$", "") + pageMeta.at("/_links/webui").asString("");
+
             StringBuilder sb = new StringBuilder();
             sb.append("---\n");
-            sb.append("title: \"").append(title.replace("\"", "\\\"")).append("\"\n");
-            sb.append("page_id: ").append(pageId).append("\n");
-            sb.append("parent_page_id: ").append(parentId != null ? parentId : "null").append("\n");
+            sb.append("title: '").append(title.replace("'", "''")).append("'\n");
+            sb.append("title_path: '").append(currentTitlePath.replace("'", "''")).append("'\n");
+            sb.append("page_id: '").append(pageId).append("'\n");
+            sb.append("parent_page_id: '").append(parentId != null ? parentId : "null").append("'\n");
             sb.append("depth: ").append(depth).append("\n");
-            sb.append("title_path: \"").append(currentTitlePath.replace("\"", "\\\"")).append("\"\n");
-            sb.append("url: \"").append(url).append("\"\n");
+            sb.append("url: ").append(url).append("\n");
             sb.append("---\n\n");
-            sb.append(cleanText.isEmpty() ? "*NO CONTENT*" : cleanText);
+            sb.append(markdownBody.isEmpty() ? "*NO CONTENT*" : markdownBody);
 
             // Save to local cache
             String safeTitle = title.replaceAll("[\\\\/*?:\"<>|]", "").replace(" ", "_");
-            Path filePath = EXPORT_DIR.resolve(pageId + "_" + safeTitle + ".txt");
+            Path filePath = EXPORT_DIR.resolve(pageId + "_" + safeTitle + ".md");
             Files.writeString(filePath, sb.toString(), StandardCharsets.UTF_8);
-            
+
             // Download attachments
             downloadAttachments(pageId);
 
@@ -159,40 +177,40 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
         }
 
         // Recursively fetch children metadata
-        JsonNode children = getConfluenceApi("/rest/api/content/" + pageId + "/child/page?limit=100");
+        JsonNode children = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_PAGE_LIMIT_100);
         for (JsonNode child : children.get("results")) {
             processPageAndChildren(child.get("id").asString(), pageId, depth + 1, currentTitlePath);
         }
     }
 
     private void downloadAttachments(String pageId) throws Exception {
-        JsonNode attachments = getConfluenceApi("/rest/api/content/" + pageId + "/child/attachment?limit=100");
+        JsonNode attachments = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100);
         if (attachments.has("results")) {
             for (JsonNode attachment : attachments.get("results")) {
                 String title = attachment.get("title").asString();
                 String downloadUrl = attachment.at("/_links/download").asString();
-                
+
                 Path pageAssetsDir = ASSETS_DIR.resolve(pageId);
                 Files.createDirectories(pageAssetsDir);
-                
+
                 Path targetFile = pageAssetsDir.resolve(title);
-                
+
                 if (Files.exists(targetFile)) {
                     log.debug("Attachment already exists, skipping: {}", title);
                     continue;
                 }
-                
+
                 log.info("Downloading attachment: {}", title);
-                
-                String fullUrl = downloadUrl.startsWith("http") ? downloadUrl : 
-                                 CONFLUENCE_URL.replaceAll("/wiki/?$", "") + downloadUrl;
-                
+
+                String fullUrl = downloadUrl.startsWith("http") ? downloadUrl :
+                        CONFLUENCE_URL.replaceAll("/wiki/?$", "") + downloadUrl;
+
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(fullUrl))
                         .header("Authorization", "Bearer " + BEARER_TOKEN)
                         .GET()
                         .build();
-                
+
                 HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(targetFile));
                 if (response.statusCode() != 200) {
                     log.error("Failed to download attachment {} (Status: {})", title, response.statusCode());
@@ -205,20 +223,20 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
     private void translateImages() throws IOException {
         if (!Files.exists(ASSETS_DIR)) return;
-        
+
         log.info("\nTranslating images in: {}...", ASSETS_DIR.getFileName());
-        
+
         try (Stream<Path> paths = Files.walk(ASSETS_DIR)) {
             paths.filter(Files::isRegularFile)
-                 .filter(p -> !p.toString().endsWith(".txt"))
-                 .forEach(assetPath -> {
-                     Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".txt");
-                     if (!Files.exists(textFile)) {
-                         bedrockMediaTranslationService.extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
-                     } else {
-                         log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
-                     }
-                 });
+                    .filter(p -> !p.toString().endsWith(".md"))
+                    .forEach(assetPath -> {
+                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
+                        if (!Files.exists(textFile)) {
+                            bedrockMediaTranslationService.extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
+                        } else {
+                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
+                        }
+                    });
         }
     }
 
@@ -232,9 +250,20 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
         if (response.statusCode() != 200) {
             throw new RuntimeException("Failed API Call: " + response.statusCode() + " - " + response.body());
         }
+
+        // Defensive check: Ensure we actually got JSON back
+        String contentType = response.headers().firstValue("Content-Type").orElse("");
+        if (!contentType.contains("application/json")) {
+            log.error("Expected JSON but received Content-Type: {}. Body starts with: \n{}",
+                    contentType,
+                    response.body().substring(0, Math.min(200, response.body().length())));
+            throw new RuntimeException("API did not return JSON. Likely redirected to an HTML login page.");
+        }
+
         return objectMapper.readTree(response.body());
     }
 
@@ -245,40 +274,19 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
              Stream<Path> paths = Files.walk(EXPORT_DIR)) {
 
             paths.filter(Files::isRegularFile)
-                 .filter(p -> p.getParent().equals(EXPORT_DIR))
-                 .filter(p -> p.toString().endsWith(".txt"))
+                    .filter(p -> p.getParent().equals(EXPORT_DIR))
+                    .filter(p -> p.toString().endsWith(".md"))
                     .forEach(txtPath -> {
                         try {
                             String content = Files.readString(txtPath, StandardCharsets.UTF_8);
+                            content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
 
                             writer.write("\n" + "=".repeat(70) + "\n");
-                            writer.write("=== FILE: " + txtPath.getFileName().toString().replace(".txt", ".md") + " ===\n");
+                            writer.write("=== FILE: " + txtPath.getFileName().toString() + " ===\n");
                             writer.write("=".repeat(70) + "\n\n");
 
                             writer.write(content);
                             writer.write("\n\n");
-
-                            String fileName = txtPath.getFileName().toString();
-                            int underscoreIndex = fileName.indexOf('_');
-                            if (underscoreIndex != -1) {
-                                String pageId = fileName.substring(0, underscoreIndex);
-                                Path pageAssetsDir = ASSETS_DIR.resolve(pageId);
-                                if (Files.exists(pageAssetsDir)) {
-                                    try (Stream<Path> assetPaths = Files.list(pageAssetsDir)) {
-                                        assetPaths.filter(Files::isRegularFile)
-                                                  .filter(p -> p.toString().endsWith(".txt"))
-                                                  .forEach(assetTxtPath -> {
-                                                      try {
-                                                          writer.write("--- Asset Translation: " + assetTxtPath.getFileName().toString().replace(".txt", "") + " ---\n");
-                                                          writer.write(Files.readString(assetTxtPath, StandardCharsets.UTF_8));
-                                                          writer.write("\n\n");
-                                                      } catch (IOException e) {
-                                                          log.error("Error reading asset file: {}", assetTxtPath, e);
-                                                      }
-                                                  });
-                                    }
-                                }
-                            }
                         } catch (IOException e) {
                             log.error("Error reading file: {}", txtPath, e);
                         }
@@ -287,6 +295,30 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
             double sizeMb = Files.size(CORPUS_FILE) / (1024.0 * 1024.0);
             log.info("Done! Corpus was created: {} ({} MB)", CORPUS_FILE.getFileName(), sizeMb);
         }
+    }
+
+    private String replaceAttachmentPlaceholdersWithAttachmentDescription(Path txtPath, String content) throws IOException {
+        String fileName = txtPath.getFileName().toString();
+        int underscoreIndex = fileName.indexOf('_');
+        if (underscoreIndex == -1) {
+            return content;
+        }
+
+        String pageId = fileName.substring(0, underscoreIndex);
+        Path pageAssetsDir = ASSETS_DIR.resolve(pageId);
+        if (!Files.exists(pageAssetsDir)) {
+            return content;
+        }
+
+        try (Stream<Path> assetPaths = Files.list(pageAssetsDir)) {
+            for (Path assetTxtPath : assetPaths.filter(p -> p.toString().endsWith(".md")).toList()) {
+                String assetFileName = assetTxtPath.getFileName().toString().replace(".md", "");
+                String assetContent = Files.readString(assetTxtPath, StandardCharsets.UTF_8);
+                content = content.replace(ATTACHMENT_PREFIX + assetFileName + ATTACHMENT_SUFFIX,
+                        "\n--- Asset Translation: " + assetFileName + " ---\n" + assetContent + "\n");
+            }
+        }
+        return content;
     }
 
     private void loadSyncState() {

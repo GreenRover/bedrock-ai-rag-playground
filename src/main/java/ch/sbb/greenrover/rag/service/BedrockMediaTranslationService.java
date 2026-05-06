@@ -81,7 +81,7 @@ public class BedrockMediaTranslationService {
                 ChatResponse response = chatModel.chat(ChatRequest.builder().messages(userMessage).build());
                 String extractedText = response.aiMessage().text();
 
-                Path textFile = pageAssetsDir.resolve(title + ".txt");
+                Path textFile = pageAssetsDir.resolve(title + ".md");
                 Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
                 log.info("Extracted text saved to {}", textFile);
             }
