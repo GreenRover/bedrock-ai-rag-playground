@@ -1,0 +1,23 @@
+/* Custom styles overrides for Markdown content inside messages */
+.message-content p {
+    margin-bottom: 0.5rem;
+}
+.message-content pre {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 1rem;
+    overflow-x: auto;
+}
+.bg-primary .message-content pre {
+    background-color: #0d6efd;
+    border-color: #0a58ca;
+    color: #fff;
+}
+.message-content code {
+    font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-size: 0.875em;
+}
+.source-item {
+    white-space: pre-wrap;
+}

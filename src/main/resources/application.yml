@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: my-ai-spring-ai
+  main:
+    banner-mode: off
