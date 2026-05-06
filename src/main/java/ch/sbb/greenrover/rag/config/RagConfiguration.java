@@ -28,9 +28,9 @@ import java.util.List;
 public class RagConfiguration {
 
     @Bean
-    BedrockRuntimeClient bedrockRuntimeClient(@Value("${AWS_BEARER_TOKEN_BEDROCK:}") String secret) {
+    BedrockRuntimeClient bedrockRuntimeClient(@Value("${aws.bedrock.token:}") String secret) {
         if (secret == null || secret.isBlank()) {
-            throw new IllegalArgumentException("AWS_BEARER_TOKEN_BEDROCK must be provided in the environment");
+            throw new IllegalArgumentException("aws.bedrock.token must be provided in application.yml or environment");
         }
         return BedrockRuntimeClient.builder()
                 .region(Region.EU_CENTRAL_1)
@@ -40,13 +40,16 @@ public class RagConfiguration {
     }
 
     @Bean
-    ChatModel chatModel(BedrockRuntimeClient client) {
+    ChatModel chatModel(BedrockRuntimeClient client,
+                        @Value("${rag.chat.model-id}") String modelId,
+                        @Value("${rag.chat.temperature}") Double temperature,
+                        @Value("${rag.chat.max-output-tokens}") Integer maxOutputTokens) {
         return BedrockChatModel.builder()
                 .client(client)
-                .modelId("eu.amazon.nova-pro-v1:0")
+                .modelId(modelId)
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(0.1)
-                        .maxOutputTokens(1000)
+                        .temperature(temperature)
+                        .maxOutputTokens(maxOutputTokens)
                         .build())
                 .build();
     }
@@ -62,12 +65,15 @@ public class RagConfiguration {
     }
 
     @Bean
-    ContentRetriever contentRetriever(EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel) {
+    ContentRetriever contentRetriever(EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel,
+                                      @Value("${rag.retriever.max-results}") Integer maxResults,
+                                      @Value("${rag.retriever.min-score}") Double minScore,
+                                      @Value("${rag.retriever.max-context-length}") Integer maxContextLength) {
         ContentRetriever delegate = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
-                .maxResults(100)
-                .minScore(0.3)
+                .maxResults(maxResults)
+                .minScore(minScore)
                 .build();
 
         return query -> {
@@ -78,7 +84,7 @@ public class RagConfiguration {
             List<Content> limitedContents = new java.util.ArrayList<>();
             for (Content c : contents) {
                 int len = c.textSegment().text().length();
-                if (currentLength + len <= 150000) {
+                if (currentLength + len <= maxContextLength) {
                     limitedContents.add(c);
                     currentLength += len;
                 } else {

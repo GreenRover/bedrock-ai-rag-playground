@@ -3,3 +3,23 @@ spring:
     name: my-ai-spring-ai
   main:
     banner-mode: off
+
+confluence:
+  export-dir: messaging_support_export
+  base-url: https://confluence.sbb.ch
+  start-page-id: 1262683220 # sttrs messaging
+  token: ${CONFLUENCE_TOKEN}
+
+aws:
+  bedrock:
+    token: ${AWS_BEARER_TOKEN_BEDROCK}
+
+rag:
+  chat:
+    model-id: "eu.amazon.nova-pro-v1:0"
+    temperature: 0.1
+    max-output-tokens: 1000
+  retriever:
+    max-results: 100
+    min-score: 0.3
+    max-context-length: 150000

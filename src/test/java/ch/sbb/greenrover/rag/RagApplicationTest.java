@@ -13,7 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "AWS_BEARER_TOKEN_BEDROCK=mock-token")
+@SpringBootTest(properties = {"aws.bedrock.token=mock-token", "CONFLUENCE_TOKEN=mock-token"})
 class RagApplicationTest {
 
     @MockitoBean
