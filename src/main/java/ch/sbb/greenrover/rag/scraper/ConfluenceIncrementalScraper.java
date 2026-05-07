@@ -8,12 +8,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -25,14 +21,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHMENT_PREFIX;
-import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHMENT_SUFFIX;
-
-@SuppressWarnings("SpringAutowiredFieldsWarningInspection")
 @Slf4j
 @Component
-@RequiredArgsConstructor
-public class ConfluenceIncrementalScraper implements ApplicationRunner {
+public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     private static final String CONFLUENCE_STORAGE_VERSION_EXPAND = "?expand=version";
     private static final String CONFLUENCE_STORAGE_BODY_EXPAND = "?expand=body.storage";
@@ -49,7 +40,6 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
     private Path EXPORT_DIR;
     private Path ASSETS_DIR;
     private Path STATE_FILE;
-    private static final Path CORPUS_FILE = Path.of("src/main/resources/messaging_support_corpus.txt");
 
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
     private Map<String, Integer> syncState = new HashMap<>();
@@ -60,6 +50,14 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
     private final ConfluenceToMarkdownService confluenceToMarkdownService;
 
+    public ConfluenceIncrementalScraper(ConfluenceClient confluenceClient,
+                                       BedrockMediaTranslationService bedrockMediaTranslationService,
+                                       ConfluenceToMarkdownService confluenceToMarkdownService) {
+        this.confluenceClient = confluenceClient;
+        this.bedrockMediaTranslationService = bedrockMediaTranslationService;
+        this.confluenceToMarkdownService = confluenceToMarkdownService;
+    }
+
     @PostConstruct
     public void init() {
         EXPORT_DIR = Path.of(exportDirString);
@@ -68,43 +66,10 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
     }
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
-        boolean runEverything = args.containsOption("scrape-all") || (args.containsOption("scrape") && Objects.requireNonNull(args.getOptionValues("scrape")).isEmpty());
-        boolean resync = args.containsOption("resync-confluence");
-        boolean translate = args.containsOption("translate-images");
-        boolean rebuild = args.containsOption("rebuild-corpus");
-
-        if (runEverything) {
-            log.info("CLI argument detected. Running all scraper tasks...");
-            run();
-            System.exit(0);
-            return;
-        }
-
-        if (resync || translate || rebuild) {
-            log.info("CLI argument detected. Running specific scraper tasks...");
-            Files.createDirectories(EXPORT_DIR);
-
-            if (resync) {
-                resyncConfluence();
-            }
-            if (translate) {
-                translateImages();
-            }
-            if (rebuild) {
-                rebuildCorpus();
-            }
-            System.exit(0);
-        }
-    }
-
-    // Run once a week on Sunday at midnight
-    @Scheduled(cron = "0 0 0 * * SUN")
-    public void run() throws Exception {
+    public void scrape() throws Exception {
         Files.createDirectories(EXPORT_DIR);
         resyncConfluence();
         translateImages();
-        rebuildCorpus();
     }
 
     private void resyncConfluence() throws Exception {
@@ -197,7 +162,7 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
         }
     }
 
-    private void translateImages() throws IOException {
+    public void translateImages() throws IOException {
         if (!Files.exists(ASSETS_DIR)) return;
 
         log.info("\nTranslating images in: {}...", ASSETS_DIR.getFileName());
@@ -214,60 +179,6 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
                         }
                     });
         }
-    }
-
-    private void rebuildCorpus() throws IOException {
-        log.info("\nRebuilding Corpus file: {}...", CORPUS_FILE.getFileName());
-
-        try (var writer = Files.newBufferedWriter(CORPUS_FILE, StandardCharsets.UTF_8);
-             Stream<Path> paths = Files.walk(EXPORT_DIR)) {
-
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> p.getParent().equals(EXPORT_DIR))
-                    .filter(p -> p.toString().endsWith(".md"))
-                    .forEach(txtPath -> {
-                        try {
-                            String content = Files.readString(txtPath, StandardCharsets.UTF_8);
-                            content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
-
-                            writer.write("\n" + "=".repeat(70) + "\n");
-                            writer.write("=== FILE: " + txtPath.getFileName().toString() + " ===\n");
-                            writer.write("=".repeat(70) + "\n\n");
-
-                            writer.write(content);
-                            writer.write("\n\n");
-                        } catch (IOException e) {
-                            log.error("Error reading file: {}", txtPath, e);
-                        }
-                    });
-
-            double sizeMb = Files.size(CORPUS_FILE) / (1024.0 * 1024.0);
-            log.info("Done! Corpus was created: {} ({} MB)", CORPUS_FILE.getFileName(), sizeMb);
-        }
-    }
-
-    private String replaceAttachmentPlaceholdersWithAttachmentDescription(Path txtPath, String content) throws IOException {
-        String fileName = txtPath.getFileName().toString();
-        int underscoreIndex = fileName.indexOf('_');
-        if (underscoreIndex == -1) {
-            return content;
-        }
-
-        String pageId = fileName.substring(0, underscoreIndex);
-        Path pageAssetsDir = ASSETS_DIR.resolve(pageId);
-        if (!Files.exists(pageAssetsDir)) {
-            return content;
-        }
-
-        try (Stream<Path> assetPaths = Files.list(pageAssetsDir)) {
-            for (Path assetTxtPath : assetPaths.filter(p -> p.toString().endsWith(".md")).toList()) {
-                String assetFileName = assetTxtPath.getFileName().toString().replace(".md", "");
-                String assetContent = Files.readString(assetTxtPath, StandardCharsets.UTF_8);
-                content = content.replace(ATTACHMENT_PREFIX + assetFileName + ATTACHMENT_SUFFIX,
-                        "\n--- Asset Translation: " + assetFileName + " ---\n" + assetContent + "\n");
-            }
-        }
-        return content;
     }
 
     private void loadSyncState() {

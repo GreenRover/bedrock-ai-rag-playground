@@ -13,6 +13,16 @@ confluence:
   start-page-id: 1262683220 # sttrs messaging
   token: ${CONFLUENCE_TOKEN}
 
+github:
+  token: ${GITHUB_TOKEN}
+  repositories:
+    - https://github.com/SchweizerischeBundesbahnen/spring-cloud-stream-binder
+    - https://github.com/solacecommunity/solace-prometheus-exporter
+    - https://github.com/solacecommunity/spring-boot-starter-solace-client-config
+    - https://github.com/solacecommunity/spring-cloud-stream-request-reply
+    - https://github.com/solacecommunity/spring-solace-leader-election
+    - https://github.com/solacecommunity/angular-solace-message-client
+
 aws:
   bedrock:
     token: ${AWS_BEARER_TOKEN_BEDROCK}

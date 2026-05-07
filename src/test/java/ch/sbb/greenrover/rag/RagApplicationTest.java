@@ -18,7 +18,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = {"aws.bedrock.token=mock-token", "CONFLUENCE_TOKEN=mock-token"})
+@SpringBootTest(properties = {"aws.bedrock.token=mock-token", "CONFLUENCE_TOKEN=mock-token", "spring.main.allow-bean-definition-overriding=true"})
 class RagApplicationTest {
 
     @TestConfiguration

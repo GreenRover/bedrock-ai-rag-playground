@@ -46,14 +46,28 @@ public class CorpusIngestor implements CommandLineRunner {
     }
 
     @Override
-    public void run(String... args) throws Exception {
-        EmbeddingStoreIngestor ingestor = createIngestor();
+    public void run(String... args) {
+        try {
+            EmbeddingStoreIngestor ingestor = createIngestor();
 
-        try (Scanner scanner = new Scanner(confluenceFileRes.getInputStream(), StandardCharsets.UTF_8)) {
-            scanner.useDelimiter(SCANNER_DELIMITER);
-            while (scanner.hasNext()) {
-                processDocumentPart(scanner.next(), ingestor);
+            if (!confluenceFileRes.exists()) {
+                log.warn("Corpus file not found: {}. Skipping ingestion.", confluenceFileRes.getDescription());
+                return;
             }
+
+            log.info("Starting corpus ingestion from {}...", confluenceFileRes.getDescription());
+            try (Scanner scanner = new Scanner(confluenceFileRes.getInputStream(), StandardCharsets.UTF_8)) {
+                scanner.useDelimiter(SCANNER_DELIMITER);
+                int count = 0;
+                while (scanner.hasNext()) {
+                    processDocumentPart(scanner.next(), ingestor);
+                    count++;
+                }
+                log.info("Corpus ingestion completed successfully. Processed {} parts.", count);
+            }
+        } catch (Exception e) {
+            log.error("Failed to ingest corpus: {}. The application will continue, but RAG might not have latest data.", e.getMessage());
+            log.debug("Detailed error during ingestion:", e);
         }
     }
 

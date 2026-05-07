@@ -1,0 +1,42 @@
+package ch.sbb.greenrover.rag.scraper;
+
+import ch.sbb.greenrover.rag.service.CorpusBuilderService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class ScraperOrchestrator {
+
+    @Lazy
+    private final List<DocumentScraper> scrapers;
+    private final CorpusBuilderService corpusBuilderService;
+
+    // Run once a week on Sunday at midnight
+    @Scheduled(cron = "0 0 0 * * SUN")
+    public void runAllScrapers() {
+        log.info("Starting scheduled scraping and corpus rebuilding task...");
+        for (DocumentScraper scraper : scrapers) {
+            try {
+                log.info("Running scraper: {}", scraper.getClass().getSimpleName());
+                scraper.scrape();
+            } catch (Exception e) {
+                log.error("Error running scraper: {}", scraper.getClass().getSimpleName(), e);
+            }
+        }
+
+        try {
+            log.info("Running corpus builder...");
+            corpusBuilderService.rebuildCorpus();
+        } catch (Exception e) {
+            log.error("Error rebuilding corpus", e);
+        }
+        log.info("Scheduled task completed.");
+    }
+}

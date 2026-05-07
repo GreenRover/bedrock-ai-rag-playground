@@ -51,7 +51,13 @@ public class BedrockMediaTranslationService {
             log.debug("Skipping file {} with unknown mime type", title);
             return true;
         }
-        if (!mimeType.startsWith("image/") && !mimeType.equals("application/pdf") && !mimeType.startsWith("video/")) {
+        if (mimeType.startsWith("image/")) {
+            if (!mimeType.equals("image/png") && !mimeType.equals("image/jpeg") &&
+                !mimeType.equals("image/gif") && !mimeType.equals("image/webp")) {
+                log.debug("Skipping unsupported image format {} for file {}", mimeType, title);
+                return true;
+            }
+        } else if (!mimeType.equals("application/pdf") && !mimeType.startsWith("video/")) {
             log.debug("Skipping unsupported mime type {} for file {}", mimeType, title);
             return true;
         }
