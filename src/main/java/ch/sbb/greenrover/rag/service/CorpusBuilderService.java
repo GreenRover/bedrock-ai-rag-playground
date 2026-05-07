@@ -1,6 +1,7 @@
 package ch.sbb.greenrover.rag.service;
 
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,10 @@ import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHME
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class CorpusBuilderService {
+
+    private final DocumentTranslationService documentTranslationService;
 
     @Value("${confluence.export-dir:messaging_support_export}")
     private String exportDirString;
@@ -42,17 +46,30 @@ public class CorpusBuilderService {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.getParent().equals(EXPORT_DIR))
                     .filter(p -> p.toString().endsWith(".md"))
+                    .filter(p -> !p.getFileName().toString().startsWith("00_index"))
+                    .parallel()
                     .forEach(txtPath -> {
                         try {
                             String content = Files.readString(txtPath, StandardCharsets.UTF_8);
                             content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
 
-                            writer.write("\n" + "=".repeat(70) + "\n");
-                            writer.write("=== FILE: " + txtPath.getFileName().toString() + " ===\n");
-                            writer.write("=".repeat(70) + "\n\n");
+                            Path cachePath = Path.of(txtPath + ".en-cache");
+                            if (Files.exists(cachePath) && Files.getLastModifiedTime(cachePath).compareTo(Files.getLastModifiedTime(txtPath)) > 0) {
+                                log.debug("Cache hit for {}", txtPath.getFileName().toString());
+                                content = Files.readString(cachePath, StandardCharsets.UTF_8);
+                            } else {
+                                content = documentTranslationService.ensureEnglish(txtPath.getFileName().toString(), content);
+                                Files.writeString(cachePath, content, StandardCharsets.UTF_8);
+                            }
 
-                            writer.write(content);
-                            writer.write("\n\n");
+                            String finalContent = "\n" + "=".repeat(70) + "\n" +
+                                    "=== FILE: " + txtPath.getFileName().toString() + " ===\n" +
+                                    "=".repeat(70) + "\n\n" +
+                                    content + "\n\n";
+
+                            synchronized (writer) {
+                                writer.write(finalContent);
+                            }
                         } catch (IOException e) {
                             log.error("Error reading file: {}", txtPath, e);
                         }

@@ -12,8 +12,11 @@ import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
+
 @RestController
 @RequiredArgsConstructor
+@Slf4j
 public class ChatController {
 
     private final Assistant assistant;
@@ -24,7 +27,9 @@ public class ChatController {
     @PostMapping("/api/chat")
     @Operation(summary = "Ask a question using the RAG AI")
     public ChatResponseDto chat(@RequestBody String message) {
+        log.info("Received prompt: {}", message);
         Result<String> result = assistant.chat(message);
+        log.info("Response for prompt '{}': {}", message, result.content());
         List<SourceDto> sources = result.sources().stream()
                 .map(content -> {
                     String text = content.textSegment().text();

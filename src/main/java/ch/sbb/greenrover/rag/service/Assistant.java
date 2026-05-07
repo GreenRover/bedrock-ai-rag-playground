@@ -23,7 +23,7 @@ public interface Assistant {
                - Format the links in Markdown: `[Title Path or Title](URL)`.
                - Extract the 'url', 'title_path', and 'title' from the provided metadata.
                - Use the 'title_path' for the Markdown link text if it is available in the metadata, falling back to 'title', and then 'url'.
-            4. LANGUAGE: You MUST respond in the exact same language that the user used in their message (e.g., German or English).
+            4. LANGUAGE: You are receiving context documents in English. However, you MUST detect the language the user used in their original query, and write your entire final response in that exact same language. For example, if the user asks in German, you must synthesize the English context and reply entirely in German.
             5. FINAL RESPONSE: Ensure your final response is formatted in Markdown after you have completed your analysis inside the <thought_process> tags.
             </instructions>
             """)

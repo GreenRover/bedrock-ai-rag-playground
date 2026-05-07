@@ -12,6 +12,10 @@ import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.injector.DefaultContentInjector;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
+import dev.langchain4j.rag.query.Query;
+import dev.langchain4j.rag.query.transformer.QueryTransformer;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
@@ -24,6 +28,7 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 @Configuration
@@ -103,12 +108,38 @@ public class RagConfiguration {
     }
 
     @Bean
-    Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever) {
+    ChatModel translationChatModel(BedrockRuntimeClient client) {
+        return BedrockChatModel.builder()
+                .client(client)
+                .modelId("eu.amazon.nova-lite-v1:0")
+                .defaultRequestParameters(BedrockChatRequestParameters.builder()
+                        .temperature(0.0)
+                        .build())
+                .build();
+    }
+
+    @Bean
+    QueryTransformer translationQueryTransformer(ChatModel translationChatModel) {
+        return query -> {
+            String prompt = "You are an expert translator. Translate the following user query into English to optimize it for a vector database search. Only return the English translation, without any conversational filler, quotes, or markdown. If the text is already in English, return it exactly as is.";
+            String translatedText = translationChatModel.chat(
+                    SystemMessage.from(prompt),
+                    UserMessage.from(query.text())
+            ).aiMessage().text();
+            System.out.println("Original Query: " + query.text());
+            System.out.println("Translated Query: " + translatedText);
+            return Collections.singletonList(Query.from(translatedText));
+        };
+    }
+
+    @Bean
+    Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever, QueryTransformer translationQueryTransformer) {
         DefaultContentInjector contentInjector = DefaultContentInjector.builder()
                 .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links"))
                 .build();
 
         DefaultRetrievalAugmentor augmentor = DefaultRetrievalAugmentor.builder()
+                .queryTransformer(translationQueryTransformer)
                 .contentRetriever(contentRetriever)
                 .contentInjector(contentInjector)
                 .build();

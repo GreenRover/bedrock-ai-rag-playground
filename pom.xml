@@ -91,6 +91,13 @@
             <version>1.330</version>
         </dependency>
 
+        <!-- Language detection -->
+        <dependency>
+            <groupId>com.github.pemistahl</groupId>
+            <artifactId>lingua</artifactId>
+            <version>1.2.2</version>
+        </dependency>
+
         <!-- Markdown conversion -->
         <dependency>
             <groupId>com.vladsch.flexmark</groupId>
