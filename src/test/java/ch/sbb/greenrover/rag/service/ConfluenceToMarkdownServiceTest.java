@@ -7,6 +7,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 
@@ -49,13 +50,32 @@ class ConfluenceToMarkdownServiceTest {
         when(confluenceClient.getUserDisplayName("user-456")).thenReturn("Bob Jones");
 
         // When
-        String markdown = service.convertToMarkdown(input, "page-789");
+        ConfluenceToMarkdownService.MarkdownResult result = service.convertToMarkdown(input, "page-789");
 
         // Then
+        String markdown = result.markdown();
         assertThat(markdown, containsString("Project Update"));
         assertThat(markdown, containsString("Hello @Alice Smith,"));
         assertThat(markdown, containsString("@Bob Jones"));
         assertThat(markdown, containsString("ATTACHMENT:architecture.png"));
         assertThat(markdown, containsString("`npm install confluence-api`"));
+    }
+
+    @Test
+    void shouldExtractOutboundLinks() {
+        // Given
+        String input = """
+                <div>
+                    <p>Check the <ac:link><ri:page ri:content-title="Architecture Diagram"/></ac:link> for more info.</p>
+                    <p>Also see <ac:link><ri:page ri:content-title="Setup Guide"/></ac:link>.</p>
+                    <p>Duplicate link: <ac:link><ri:page ri:content-title="Architecture Diagram"/></ac:link></p>
+                </div>
+                """;
+
+        // When
+        ConfluenceToMarkdownService.MarkdownResult result = service.convertToMarkdown(input, "page-123");
+
+        // Then
+        assertThat(result.outboundLinks(), contains("Architecture Diagram", "Setup Guide"));
     }
 }

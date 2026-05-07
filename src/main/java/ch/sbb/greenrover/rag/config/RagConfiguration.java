@@ -4,9 +4,9 @@ import ch.sbb.greenrover.rag.service.Assistant;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
+import dev.langchain4j.model.bedrock.BedrockTitanEmbeddingModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
 import dev.langchain4j.rag.DefaultRetrievalAugmentor;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.injector.DefaultContentInjector;
@@ -57,8 +57,11 @@ public class RagConfiguration {
     }
 
     @Bean
-    EmbeddingModel embeddingModel() {
-        return new AllMiniLmL6V2EmbeddingModel();
+    EmbeddingModel embeddingModel(BedrockRuntimeClient client) {
+        return BedrockTitanEmbeddingModel.builder()
+                .client(client)
+                .model("amazon.titan-embed-text-v2:0")
+                .build();
     }
 
     @Bean
@@ -102,7 +105,7 @@ public class RagConfiguration {
     @Bean
     Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever) {
         DefaultContentInjector contentInjector = DefaultContentInjector.builder()
-                .metadataKeysToInclude(Arrays.asList("url", "title"))
+                .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links"))
                 .build();
 
         DefaultRetrievalAugmentor augmentor = DefaultRetrievalAugmentor.builder()

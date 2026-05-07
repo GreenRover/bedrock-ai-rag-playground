@@ -132,7 +132,8 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
             String htmlContent = pageContent.at("/body/storage/value").asText();
 
             // Convert HTML to clean text/markdown
-            String markdownBody = confluenceToMarkdownService.convertToMarkdown(htmlContent, pageId);
+            ConfluenceToMarkdownService.MarkdownResult markdownResult = confluenceToMarkdownService.convertToMarkdown(htmlContent, pageId);
+            String markdownBody = markdownResult.markdown();
 
             String url = confluenceClient.getBaseUrl().replaceAll("/wiki/?$", "") + pageMeta.at("/_links/webui").asText("");
 
@@ -144,6 +145,9 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
             sb.append("parent_page_id: '").append(parentId != null ? parentId : "null").append("'\n");
             sb.append("depth: ").append(depth).append("\n");
             sb.append("url: ").append(url).append("\n");
+            if (!markdownResult.outboundLinks().isEmpty()) {
+                sb.append("outbound_links: '").append(String.join(", ", markdownResult.outboundLinks()).replace("'", "''")).append("'\n");
+            }
             sb.append("---\n\n");
             sb.append(markdownBody.isEmpty() ? "*NO CONTENT*" : markdownBody);
 

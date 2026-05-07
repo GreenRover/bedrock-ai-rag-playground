@@ -24,5 +24,5 @@ rag:
     max-output-tokens: 1000
   retriever:
     max-results: 100
-    min-score: 0.3
-    max-context-length: 150000
+    min-score: 0.65
+    max-context-length: 40000

@@ -1,6 +1,7 @@
 package ch.sbb.greenrover.rag.service;
 
 import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
@@ -31,6 +32,8 @@ public class CorpusIngestor implements CommandLineRunner {
 
     private static final Pattern URL_PATTERN = Pattern.compile("url: (https?://[^\\s]+)");
     private static final Pattern TITLE_PATTERN = Pattern.compile("title: (.*)");
+    private static final Pattern TITLE_PATH_PATTERN = Pattern.compile("title_path: '(.*)'");
+    private static final Pattern OUTBOUND_LINKS_PATTERN = Pattern.compile("outbound_links: '(.*)'");
     private static final String SCANNER_DELIMITER = "(?m)^={70}\\r?\\n=== FILE: ";
 
     public CorpusIngestor(
@@ -55,11 +58,48 @@ public class CorpusIngestor implements CommandLineRunner {
     }
 
     private EmbeddingStoreIngestor createIngestor() {
+        log.info("Initializing EmbeddingStoreIngestor with Markdown-aware chunking strategy.");
         return EmbeddingStoreIngestor.builder()
-                .documentSplitter(DocumentSplitters.recursive(1000, 150))
+                .documentSplitter(new MarkdownDocumentSplitter(1000, 150))
                 .embeddingModel(embeddingModel)
                 .embeddingStore(embeddingStore)
                 .build();
+    }
+
+    /**
+     * Custom Markdown-aware DocumentSplitter that splits primarily by Markdown headers
+     * and paragraphs, while enforcing maximum segment size constraints.
+     */
+    private static class MarkdownDocumentSplitter implements DocumentSplitter {
+        private final int maxSegmentSize;
+        private final DocumentSplitter recursiveFallback;
+
+        MarkdownDocumentSplitter(int maxSegmentSize, int maxOverlapSize) {
+            this.maxSegmentSize = maxSegmentSize;
+            this.recursiveFallback = DocumentSplitters.recursive(maxSegmentSize, maxOverlapSize);
+        }
+
+        @Override
+        public List<TextSegment> split(Document document) {
+            log.debug("Splitting document with Markdown-aware strategy. Length: {}", document.text().length());
+            // Split by Markdown headers (e.g., #, ##, ###) using a positive lookahead to keep headers with content
+            String[] headerParts = document.text().split("(?m)(?=^#+ )");
+
+            List<TextSegment> allSegments = new ArrayList<>();
+            for (String part : headerParts) {
+                if (part.isBlank()) continue;
+
+                if (part.length() > maxSegmentSize) {
+                    // If the section is too large, use recursive splitting for paragraphs and lines
+                    Document subDoc = Document.document(part, document.metadata());
+                    allSegments.addAll(recursiveFallback.split(subDoc));
+                } else {
+                    allSegments.add(TextSegment.from(part, document.metadata()));
+                }
+            }
+            log.debug("Document split into {} segments.", allSegments.size());
+            return allSegments;
+        }
     }
 
     private void processDocumentPart(String part, EmbeddingStoreIngestor ingestor) {
@@ -94,6 +134,16 @@ public class CorpusIngestor implements CommandLineRunner {
         Matcher titleMatcher = TITLE_PATTERN.matcher(part);
         if (titleMatcher.find()) {
             metadata.put("title", titleMatcher.group(1).trim());
+        }
+
+        Matcher titlePathMatcher = TITLE_PATH_PATTERN.matcher(part);
+        if (titlePathMatcher.find()) {
+            metadata.put("title_path", titlePathMatcher.group(1).trim());
+        }
+
+        Matcher outboundLinksMatcher = OUTBOUND_LINKS_PATTERN.matcher(part);
+        if (outboundLinksMatcher.find()) {
+            metadata.put("outbound_links", outboundLinksMatcher.group(1));
         }
 
         return metadata;
