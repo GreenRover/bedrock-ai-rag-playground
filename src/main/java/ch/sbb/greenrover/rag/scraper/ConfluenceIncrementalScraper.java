@@ -1,25 +1,22 @@
 package ch.sbb.greenrover.rag.scraper;
 
+import ch.sbb.greenrover.rag.service.ConfluenceClient;
 import ch.sbb.greenrover.rag.service.BedrockMediaTranslationService;
 import ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +31,7 @@ import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHME
 @SuppressWarnings("SpringAutowiredFieldsWarningInspection")
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
     private static final String CONFLUENCE_STORAGE_VERSION_EXPAND = "?expand=version";
@@ -41,12 +39,6 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
     private static final String CONFLUENCE_CHILD_PAGE_LIMIT_100 = "/child/page?limit=100";
     private static final String CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100 = "/child/attachment?limit=100";
     private static final String CONFLUENCE_API_CONTENT_PATH = "/rest/api/content/";
-
-    @Value("${confluence.base-url}")
-    private String CONFLUENCE_URL; // e.g. https://your-domain.atlassian.net/wiki
-
-    @Value("${confluence.token}")
-    private String BEARER_TOKEN;
 
     @Value("${confluence.start-page-id}")
     private String START_PAGE_ID;
@@ -59,27 +51,20 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
     private Path STATE_FILE;
     private static final Path CORPUS_FILE = Path.of("src/main/resources/messaging_support_corpus.txt");
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
     private Map<String, Integer> syncState = new HashMap<>();
 
-    @Autowired
-    private BedrockMediaTranslationService bedrockMediaTranslationService;
+    private final ConfluenceClient confluenceClient;
 
-    @Autowired
-    private ConfluenceToMarkdownService confluenceToMarkdownService;
+    private final BedrockMediaTranslationService bedrockMediaTranslationService;
+
+    private final ConfluenceToMarkdownService confluenceToMarkdownService;
 
     @PostConstruct
     public void init() {
         EXPORT_DIR = Path.of(exportDirString);
         ASSETS_DIR = EXPORT_DIR.resolve("assets");
         STATE_FILE = EXPORT_DIR.resolve("sync_state.json");
-
-        if (BEARER_TOKEN == null || BEARER_TOKEN.trim().isEmpty()) {
-            throw new IllegalArgumentException("confluence.token (BEARER_TOKEN) must not be empty");
-        }
     }
 
     @Override
@@ -131,9 +116,9 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
     private void processPageAndChildren(String pageId, String parentId, int depth, String titlePath) throws Exception {
         // Fetch page metadata (ID, Title, Version) WITHOUT the heavy body
-        JsonNode pageMeta = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_VERSION_EXPAND);
+        JsonNode pageMeta = confluenceClient.getApiResult(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_VERSION_EXPAND);
         int remoteVersion = pageMeta.at("/version/number").asInt();
-        String title = pageMeta.get("title").asString();
+        String title = pageMeta.get("title").asText();
         String currentTitlePath = titlePath == null || titlePath.isEmpty() ? title : titlePath + " > " + title;
 
         int localVersion = syncState.getOrDefault(pageId, 0);
@@ -143,13 +128,13 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
             log.info("-> Fetching new/updated content for: {} (v{})", title, remoteVersion);
 
             // Fetch heavy content payload
-            JsonNode pageContent = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_BODY_EXPAND);
-            String htmlContent = pageContent.at("/body/storage/value").asString();
+            JsonNode pageContent = confluenceClient.getApiResult(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_BODY_EXPAND);
+            String htmlContent = pageContent.at("/body/storage/value").asText();
 
             // Convert HTML to clean text/markdown
             String markdownBody = confluenceToMarkdownService.convertToMarkdown(htmlContent, pageId);
 
-            String url = CONFLUENCE_URL.replaceAll("/wiki/?$", "") + pageMeta.at("/_links/webui").asString("");
+            String url = confluenceClient.getBaseUrl().replaceAll("/wiki/?$", "") + pageMeta.at("/_links/webui").asText("");
 
             StringBuilder sb = new StringBuilder();
             sb.append("---\n");
@@ -177,18 +162,18 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
         }
 
         // Recursively fetch children metadata
-        JsonNode children = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_PAGE_LIMIT_100);
+        JsonNode children = confluenceClient.getApiResult(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_PAGE_LIMIT_100);
         for (JsonNode child : children.get("results")) {
-            processPageAndChildren(child.get("id").asString(), pageId, depth + 1, currentTitlePath);
+            processPageAndChildren(child.get("id").asText(), pageId, depth + 1, currentTitlePath);
         }
     }
 
     private void downloadAttachments(String pageId) throws Exception {
-        JsonNode attachments = getConfluenceApi(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100);
+        JsonNode attachments = confluenceClient.getApiResult(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100);
         if (attachments.has("results")) {
             for (JsonNode attachment : attachments.get("results")) {
-                String title = attachment.get("title").asString();
-                String downloadUrl = attachment.at("/_links/download").asString();
+                String title = attachment.get("title").asText();
+                String downloadUrl = attachment.at("/_links/download").asText();
 
                 Path pageAssetsDir = ASSETS_DIR.resolve(pageId);
                 Files.createDirectories(pageAssetsDir);
@@ -202,21 +187,8 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
 
                 log.info("Downloading attachment: {}", title);
 
-                String fullUrl = downloadUrl.startsWith("http") ? downloadUrl :
-                        CONFLUENCE_URL.replaceAll("/wiki/?$", "") + downloadUrl;
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(fullUrl))
-                        .header("Authorization", "Bearer " + BEARER_TOKEN)
-                        .GET()
-                        .build();
-
-                HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(targetFile));
-                if (response.statusCode() != 200) {
-                    log.error("Failed to download attachment {} (Status: {})", title, response.statusCode());
-                } else {
-                    log.info("Saved attachment to {}", targetFile);
-                }
+                confluenceClient.downloadAttachment(downloadUrl, targetFile);
+                log.info("Saved attachment to {}", targetFile);
             }
         }
     }
@@ -238,33 +210,6 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
                         }
                     });
         }
-    }
-
-
-    private JsonNode getConfluenceApi(String path) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(CONFLUENCE_URL + path))
-                .header("Authorization", "Bearer " + BEARER_TOKEN)
-                .header("Accept", "application/json")
-                .GET()
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200) {
-            throw new RuntimeException("Failed API Call: " + response.statusCode() + " - " + response.body());
-        }
-
-        // Defensive check: Ensure we actually got JSON back
-        String contentType = response.headers().firstValue("Content-Type").orElse("");
-        if (!contentType.contains("application/json")) {
-            log.error("Expected JSON but received Content-Type: {}. Body starts with: \n{}",
-                    contentType,
-                    response.body().substring(0, Math.min(200, response.body().length())));
-            throw new RuntimeException("API did not return JSON. Likely redirected to an HTML login page.");
-        }
-
-        return objectMapper.readTree(response.body());
     }
 
     private void rebuildCorpus() throws IOException {
@@ -332,7 +277,7 @@ public class ConfluenceIncrementalScraper implements ApplicationRunner {
         }
     }
 
-    private void saveSyncState() {
+    private void saveSyncState() throws IOException {
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(STATE_FILE.toFile(), syncState);
     }
 }

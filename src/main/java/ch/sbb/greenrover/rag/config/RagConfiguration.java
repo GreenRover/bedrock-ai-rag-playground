@@ -18,9 +18,11 @@ import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -34,7 +36,7 @@ public class RagConfiguration {
         }
         return BedrockRuntimeClient.builder()
                 .region(Region.EU_CENTRAL_1)
-                .credentialsProvider(software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider.create())
+                .credentialsProvider(AnonymousCredentialsProvider.create())
                 .overrideConfiguration(c -> c.putHeader("Authorization", "Bearer " + secret))
                 .build();
     }
@@ -79,9 +81,9 @@ public class RagConfiguration {
         return query -> {
             System.out.println("[DEBUG] User Query Token Length (chars): " + query.text().length());
             List<Content> contents = delegate.retrieve(query);
-            
+
             int currentLength = 0;
-            List<Content> limitedContents = new java.util.ArrayList<>();
+            List<Content> limitedContents = new ArrayList<>();
             for (Content c : contents) {
                 int len = c.textSegment().text().length();
                 if (currentLength + len <= maxContextLength) {
@@ -91,7 +93,7 @@ public class RagConfiguration {
                     break;
                 }
             }
-            
+
             System.out.println("[DEBUG] RAG Injected Context Token Length (chars): " + currentLength);
             return limitedContents;
         };

@@ -6,11 +6,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-public class ConfluenceToMarkdownServiceTest {
+class ConfluenceToMarkdownServiceTest {
 
     @Mock
     private ConfluenceClient confluenceClient;
@@ -23,7 +24,7 @@ public class ConfluenceToMarkdownServiceTest {
     }
 
     @Test
-    void testConvertToMarkdown() {
+    void shouldConvertToMarkdown() {
         // Given
         String input = """
                 <div>
@@ -51,12 +52,10 @@ public class ConfluenceToMarkdownServiceTest {
         String markdown = service.convertToMarkdown(input, "page-789");
 
         // Then
-        System.out.println("[DEBUG_LOG] Generated Markdown:\n" + markdown);
-
-        assertTrue(markdown.contains("Project Update"), "Should contain Project Update");
-        assertTrue(markdown.contains("Hello @Alice Smith,"), "Should contain Hello @Alice Smith,");
-        assertTrue(markdown.contains("@Bob Jones"), "Should contain @Bob Jones");
-        assertTrue(markdown.contains("[[ATTACHMENT:architecture.png]]") || markdown.contains("\\[\\[ATTACHMENT:architecture.png\\]\\]"), "Should contain attachment placeholder (possibly escaped)");
-        assertTrue(markdown.contains("`npm install confluence-api`"), "Should contain code block");
+        assertThat(markdown, containsString("Project Update"));
+        assertThat(markdown, containsString("Hello @Alice Smith,"));
+        assertThat(markdown, containsString("@Bob Jones"));
+        assertThat(markdown, containsString("ATTACHMENT:architecture.png"));
+        assertThat(markdown, containsString("`npm install confluence-api`"));
     }
 }

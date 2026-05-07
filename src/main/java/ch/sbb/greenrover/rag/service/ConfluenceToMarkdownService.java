@@ -9,16 +9,15 @@ import org.jsoup.nodes.TextNode;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
+import lombok.RequiredArgsConstructor;
+
 @Service
+@RequiredArgsConstructor
 public class ConfluenceToMarkdownService {
     public static final String ATTACHMENT_PREFIX = "[[ATTACHMENT:";
     public static final String ATTACHMENT_SUFFIX = "]]";
 
     private final ConfluenceClient confluenceClient;
-
-    public ConfluenceToMarkdownService(ConfluenceClient confluenceClient) {
-        this.confluenceClient = confluenceClient;
-    }
 
     public String convertToMarkdown(String storageFormat, String pageId) {
         Document doc = Jsoup.parseBodyFragment(storageFormat);
@@ -58,7 +57,7 @@ public class ConfluenceToMarkdownService {
         // Convert the cleaned HTML to Markdown
         MutableDataSet options = new MutableDataSet();
         // You can add flexmark options here if needed
-        
+
         String html = doc.body().html();
         return FlexmarkHtmlConverter.builder(options).build().convert(html).trim();
     }

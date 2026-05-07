@@ -1,6 +1,7 @@
 package ch.sbb.greenrover.rag;
 
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -14,7 +15,7 @@ public class RagApplication {
         for (String arg : args) {
             if (arg.contains("scrape-all") || arg.contains("resync-confluence") ||
                     arg.contains("translate-images") || arg.contains("rebuild-corpus")) {
-                app.setWebApplicationType(org.springframework.boot.WebApplicationType.NONE);
+                app.setWebApplicationType(WebApplicationType.NONE);
                 break;
             }
         }
