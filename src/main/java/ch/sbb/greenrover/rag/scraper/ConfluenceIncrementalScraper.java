@@ -1,7 +1,7 @@
 package ch.sbb.greenrover.rag.scraper;
 
-import ch.sbb.greenrover.rag.service.ConfluenceClient;
 import ch.sbb.greenrover.rag.service.BedrockMediaTranslationService;
+import ch.sbb.greenrover.rag.service.ConfluenceClient;
 import ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -32,9 +31,9 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
     private static final String CONFLUENCE_API_CONTENT_PATH = "/rest/api/content/";
 
     @Value("${confluence.start-page-id}")
-    private String START_PAGE_ID;
+    private java.util.List<String> startPageIds;
 
-    @Value("${confluence.export-dir:messaging_support_export}")
+    @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
 
     private Path EXPORT_DIR;
@@ -74,8 +73,10 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     private void resyncConfluence() throws Exception {
         loadSyncState();
-        log.info("Starting incremental sync from page {}", START_PAGE_ID);
-        processPageAndChildren(START_PAGE_ID, null, 0, "");
+        for (String startPageId : startPageIds) {
+            log.info("Starting incremental sync from page {}", startPageId);
+            processPageAndChildren(startPageId, null, 0, "");
+        }
         saveSyncState();
     }
 
@@ -83,6 +84,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
         // Fetch page metadata (ID, Title, Version) WITHOUT the heavy body
         JsonNode pageMeta = confluenceClient.getApiResult(CONFLUENCE_API_CONTENT_PATH + pageId + CONFLUENCE_STORAGE_VERSION_EXPAND);
         int remoteVersion = pageMeta.at("/version/number").asInt();
+        String lastUpdate = pageMeta.at("/version/when").asText("");
         String title = pageMeta.get("title").asText();
         String currentTitlePath = titlePath == null || titlePath.isEmpty() ? title : titlePath + " > " + title;
 
@@ -110,6 +112,9 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
             sb.append("parent_page_id: '").append(parentId != null ? parentId : "null").append("'\n");
             sb.append("depth: ").append(depth).append("\n");
             sb.append("url: ").append(url).append("\n");
+            if (!lastUpdate.isEmpty()) {
+                sb.append("last_updated: '").append(lastUpdate).append("'\n");
+            }
             if (!markdownResult.outboundLinks().isEmpty()) {
                 sb.append("outbound_links: '").append(String.join(", ", markdownResult.outboundLinks()).replace("'", "''")).append("'\n");
             }
@@ -127,7 +132,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
             // Update state
             syncState.put(pageId, remoteVersion);
         } else {
-            log.debug("-> Skipping unchanged: {} (v{})", title, localVersion);
+            log.info("-> Skipping unchanged: {} (v{})", title, localVersion);
         }
 
         // Recursively fetch children metadata
@@ -170,6 +175,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
         try (Stream<Path> paths = Files.walk(ASSETS_DIR)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !p.toString().endsWith(".md"))
+                    .parallel()
                     .forEach(assetPath -> {
                         Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
                         if (!Files.exists(textFile)) {

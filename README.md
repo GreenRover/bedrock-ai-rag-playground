@@ -56,9 +56,9 @@ The application automatically syncs with Confluence and GitHub every Sunday at m
 
 Alternatively, you can run specific scraper tasks by providing one or more of the following arguments:
 - `--sync-github`: Syncs markdown files from configured GitHub repositories.
-- `--resync-confluence`: Syncs metadata and text content from Confluence.
-- `--translate-images`: Translates downloaded images and attachments.
-- `--rebuild-corpus`: Rebuilds the combined text corpus file.
+- `--sync-bitbucket`: Syncs markdown files from configured Bitbucket repositories.
+- `--sync-confluence`: Syncs metadata and text content from Confluence.
+- `--rebuild-rag`: Rebuilds the rag / PostgreSQL db.
 
 Since `./mvnw spring-boot:run` does not load `.env` files out of the box, you can load the variables into your shell environment first (e.g., in bash: `export $(grep -v '^#' .env | xargs)`), or use a tool like `dotenv-cli`.
 
@@ -66,7 +66,7 @@ Since `./mvnw spring-boot:run` does not load `.env` files out of the box, you ca
 export $(grep -v '^#' .env | xargs)
 ./mvnw spring-boot:run -Dspring-boot.run.arguments="--scrape-all"
 # Or for specific tasks:
-# ./mvnw spring-boot:run -Dspring-boot.run.arguments="--resync-confluence,--translate-images"
+# ./mvnw spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--rebuild-rag"
 ```
 
 ## Application Structure

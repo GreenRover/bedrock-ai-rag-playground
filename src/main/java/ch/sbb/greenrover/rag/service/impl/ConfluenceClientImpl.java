@@ -60,33 +60,56 @@ public class ConfluenceClientImpl implements ConfluenceClient {
 
     @Override
     public JsonNode getApiResult(String path) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + path))
-                    .header(AUTHORIZATION_HEADER, BEARER_PREFIX + apiToken)
-                    .header(ACCEPT_HEADER, APPLICATION_JSON)
-                    .GET()
-                    .build();
+        int maxRetries = 3;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                // Add a small delay between requests to avoid DDoS
+                Thread.sleep(100L);
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + path))
+                        .header(AUTHORIZATION_HEADER, BEARER_PREFIX + apiToken)
+                        .header(ACCEPT_HEADER, APPLICATION_JSON)
+                        .GET()
+                        .build();
 
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("Failed API Call: " + response.statusCode() + " - " + response.body());
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() == 429) {
+                    if (attempt < maxRetries) {
+                        log.warn("Rate limit exceeded (429) from Confluence API for path {}. Cooling down before retry {}/{}", path, attempt, maxRetries);
+                        Thread.sleep(10_000L * attempt); // exponential backoff
+                        continue;
+                    } else {
+                        throw new RuntimeException("Failed API Call: " + response.statusCode() + " - " + response.body());
+                    }
+                }
+
+                if (response.statusCode() != 200) {
+                    throw new RuntimeException("Failed API Call: " + response.statusCode() + " - " + response.body());
+                }
+
+                // Defensive check: Ensure we actually got JSON back
+                String contentType = response.headers().firstValue("Content-Type").orElse("");
+                if (!contentType.contains("application/json")) {
+                    log.error("Expected JSON but received Content-Type: {} for page: {}. Body starts with: \n{}",
+                            contentType,
+                            path,
+                            response.body().substring(0, Math.min(200, response.body().length())));
+                    throw new RuntimeException("API did not return JSON. Likely redirected to an HTML login page.");
+                }
+
+                return objectMapper.readTree(response.body());
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Thread interrupted", ie);
+            } catch (Exception e) {
+                if (attempt == maxRetries || e instanceof RuntimeException && !e.getMessage().contains("429")) {
+                    throw new RuntimeException("Error calling Confluence API: " + e.getMessage(), e);
+                }
             }
-
-            // Defensive check: Ensure we actually got JSON back
-            String contentType = response.headers().firstValue("Content-Type").orElse("");
-            if (!contentType.contains("application/json")) {
-                log.error("Expected JSON but received Content-Type: {}. Body starts with: \n{}",
-                        contentType,
-                        response.body().substring(0, Math.min(200, response.body().length())));
-                throw new RuntimeException("API did not return JSON. Likely redirected to an HTML login page.");
-            }
-
-            return objectMapper.readTree(response.body());
-        } catch (Exception e) {
-            throw new RuntimeException("Error calling Confluence API: " + e.getMessage(), e);
         }
+        throw new RuntimeException("Max retries exceeded for Confluence API");
     }
 
     @Override
@@ -101,9 +124,44 @@ public class ConfluenceClientImpl implements ConfluenceClient {
                     .GET()
                     .build();
 
-            HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(targetFile));
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("Failed to download attachment " + downloadUrl + " (Status: " + response.statusCode() + ")");
+            int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    // Add a small delay between requests to avoid DDoS
+                    Thread.sleep(500);
+
+                    HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(targetFile));
+
+                    if (response.statusCode() == 429) {
+                        if (attempt < maxRetries) {
+                            log.warn("Rate limit exceeded (429) from Confluence API for attachment {}. Cooling down before retry {}/{}", downloadUrl, attempt, maxRetries);
+                            Thread.sleep(5000L * attempt); // exponential backoff
+                            continue;
+                        } else {
+                            throw new RuntimeException("Failed to download attachment " + downloadUrl + " (Status: " + response.statusCode() + ")");
+                        }
+                    }
+
+                    if (response.statusCode() != 200) {
+                        throw new RuntimeException("Failed to download attachment " + downloadUrl + " (Status: " + response.statusCode() + ")");
+                    }
+                    return; // Success
+                } catch (java.io.IOException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("GOAWAY") && attempt < maxRetries) {
+                        log.warn("Received GOAWAY from Confluence for {}. Cooling down before retry {}/{}", downloadUrl, attempt, maxRetries);
+                        try {
+                            Thread.sleep(5000); // 5 seconds cool down
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Thread interrupted during cool down", ie);
+                        }
+                    } else {
+                        throw e; // Rethrow if it's not GOAWAY or max retries reached
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Thread interrupted", ie);
+                }
             }
         } catch (Exception e) {
             throw new RuntimeException("Error downloading attachment: " + e.getMessage(), e);

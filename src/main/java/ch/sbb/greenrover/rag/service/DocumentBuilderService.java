@@ -20,16 +20,16 @@ import static ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService.ATTACHME
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class CorpusBuilderService {
+public class DocumentBuilderService {
 
     private final DocumentTranslationService documentTranslationService;
+    private final DocumentIngestor documentIngestor;
 
-    @Value("${confluence.export-dir:messaging_support_export}")
+    @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
 
     private Path EXPORT_DIR;
     private Path ASSETS_DIR;
-    private static final Path CORPUS_FILE = Path.of("src/main/resources/messaging_support_corpus.txt");
 
     @PostConstruct
     public void init() {
@@ -37,11 +37,10 @@ public class CorpusBuilderService {
         ASSETS_DIR = EXPORT_DIR.resolve("assets");
     }
 
-    public void rebuildCorpus() throws IOException {
-        log.info("\nRebuilding Corpus file: {}...", CORPUS_FILE.getFileName());
+    public void rebuildRag() throws IOException {
+        log.info("\nRebuilding RAG and ingesting into PostgresDB ...");
 
-        try (var writer = Files.newBufferedWriter(CORPUS_FILE, StandardCharsets.UTF_8);
-             Stream<Path> paths = Files.walk(EXPORT_DIR)) {
+        try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
 
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.getParent().equals(EXPORT_DIR))
@@ -62,21 +61,13 @@ public class CorpusBuilderService {
                                 Files.writeString(cachePath, content, StandardCharsets.UTF_8);
                             }
 
-                            String finalContent = "\n" + "=".repeat(70) + "\n" +
-                                    "=== FILE: " + txtPath.getFileName().toString() + " ===\n" +
-                                    "=".repeat(70) + "\n\n" +
-                                    content + "\n\n";
-
-                            synchronized (writer) {
-                                writer.write(finalContent);
-                            }
+                            documentIngestor.ingestDocument(txtPath.getFileName().toString(), content);
                         } catch (IOException e) {
                             log.error("Error reading file: {}", txtPath, e);
                         }
                     });
 
-            double sizeMb = Files.size(CORPUS_FILE) / (1024.0 * 1024.0);
-            log.info("Done! Corpus was created: {} ({} MB)", CORPUS_FILE.getFileName(), sizeMb);
+            log.info("Done! Corpus was ingested directly into the PostgresDB.");
         }
     }
 

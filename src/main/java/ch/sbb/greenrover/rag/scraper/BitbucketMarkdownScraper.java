@@ -1,8 +1,10 @@
 package ch.sbb.greenrover.rag.scraper;
 
-import ch.sbb.greenrover.rag.config.GithubProperties;
+import ch.sbb.greenrover.rag.config.BitbucketProperties;
 import ch.sbb.greenrover.rag.service.BedrockMediaTranslationService;
 import ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vladsch.flexmark.ast.Image;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
@@ -10,7 +12,7 @@ import com.vladsch.flexmark.util.ast.NodeVisitor;
 import com.vladsch.flexmark.util.ast.VisitHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.kohsuke.github.*;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
@@ -29,58 +31,57 @@ import java.util.stream.Stream;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class GithubMarkdownScraper implements DocumentScraper {
+public class BitbucketMarkdownScraper implements DocumentScraper {
 
     private static final String ASSETS_DIR = "assets";
-    private static final String GH_PREFIX = "gh-";
+    private static final String BB_PREFIX = "bb-";
     private static final String MD_EXTENSION = ".md";
     private static final String FRONTMATTER_DASHES = "---\n";
 
     private final BedrockMediaTranslationService bedrockMediaTranslationService;
-    private final GithubProperties githubProperties;
+    private final BitbucketProperties bitbucketProperties;
 
     @org.springframework.beans.factory.annotation.Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
 
-    private final GitHub gitHub;
-    private final RestClient githubRestClient;
-    private final RetryTemplate githubRetryTemplate;
+    @Qualifier("bitbucketRestClient")
+    private final RestClient bitbucketRestClient;
+    private final RetryTemplate retryTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void scrape() {
         try {
-            List<String> repositoryUrls = githubProperties.getRepositories();
-            String githubToken = githubProperties.getToken();
+            List<String> repositoryUrls = bitbucketProperties.getRepositories();
+            String token = bitbucketProperties.getToken();
 
             if (repositoryUrls == null || repositoryUrls.isEmpty()) {
-                log.info("No GitHub repositories configured, skipping GitHub scraping.");
+                log.info("No Bitbucket repositories configured, skipping Bitbucket scraping.");
                 return;
             }
 
-            if (githubToken == null || githubToken.isBlank()) {
-                log.warn("GITHUB_TOKEN is not set, GitHub scraping might fail due to rate limits.");
+            if (token == null || token.isBlank()) {
+                log.warn("BITBUCKET_TOKEN is not set, Bitbucket scraping might fail.");
             }
 
             Path exportDir = Path.of(exportDirString);
             Files.createDirectories(exportDir);
 
-            log.info("Connecting to GitHub with {} repositories configured...", repositoryUrls.size());
+            log.info("Connecting to Bitbucket with {} repositories configured...", repositoryUrls.size());
 
             for (String url : repositoryUrls) {
                 try {
-                    githubRetryTemplate.execute(context -> {
+                    retryTemplate.execute(context -> {
                         scrapeRepository(url, exportDir);
                         return null;
                     });
                 } catch (Exception e) {
                     log.error("Error scraping repository {}: {}", url, e.getMessage());
-                    log.debug("Detailed error scraping repository:", e);
                 }
             }
             translateImages(exportDir);
         } catch (Exception e) {
-            log.error("Failed to execute GitHub scraping: {}", e.getMessage());
-            log.debug("Detailed error in scrape():", e);
+            log.error("Failed to execute Bitbucket scraping: {}", e.getMessage());
         }
     }
 
@@ -88,11 +89,11 @@ public class GithubMarkdownScraper implements DocumentScraper {
         Path assetsDir = exportDir.resolve(ASSETS_DIR);
         if (!Files.exists(assetsDir)) return;
 
-        log.info("Translating GitHub images...");
+        log.info("Translating Bitbucket images...");
         try (Stream<Path> paths = Files.walk(assetsDir)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !p.toString().endsWith(MD_EXTENSION))
-                    .filter(p -> p.getParent().getFileName().toString().startsWith(GH_PREFIX))
+                    .filter(p -> p.getParent().getFileName().toString().startsWith(BB_PREFIX))
                     .forEach(assetPath -> {
                         Path textFile = assetPath.resolveSibling(assetPath.getFileName() + MD_EXTENSION);
                         if (!Files.exists(textFile)) {
@@ -112,57 +113,93 @@ public class GithubMarkdownScraper implements DocumentScraper {
                lowerPath.endsWith("agent.md") ||
                lowerPath.endsWith("changelog.md") ||
                lowerPath.contains("/.agents/") ||
-               lowerPath.startsWith(".agents/") ||
-               lowerPath.startsWith(".github/");
+               lowerPath.startsWith(".agents/");
     }
 
     private void scrapeRepository(String url, Path exportDir) throws IOException {
-        String repoFullName = url.replace("https://github.com/", "");
-        if (repoFullName.endsWith("/")) {
-            repoFullName = repoFullName.substring(0, repoFullName.length() - 1);
+        String[] projectAndRepo = parseProjectAndRepo(url);
+        String projectKey = projectAndRepo[0];
+        String repositorySlug = projectAndRepo[1];
+
+        if (projectKey == null || repositorySlug == null) {
+            log.warn("Failed to parse projectKey or repositorySlug from URL: {}", url);
+            return;
         }
 
-        GHRepository repository = gitHub.getRepository(repoFullName);
-        String defaultBranch = repository.getDefaultBranch();
-        log.info("Scraping repository: {} (default branch: {})", repoFullName, defaultBranch);
+        log.info("Scraping Bitbucket repository: {}/{}", projectKey, repositorySlug);
 
-        GHTree tree = repository.getTreeRecursive(defaultBranch, 1);
-        for (GHTreeEntry entry : tree.getTree()) {
-            if ("blob".equals(entry.getType()) && entry.getPath().endsWith(MD_EXTENSION) && !isExcluded(entry.getPath())) {
-                processMarkdownFile(repository, entry, repoFullName, exportDir);
+        // Fetch file tree
+        String filesUri = String.format("/rest/api/1.0/projects/%s/repos/%s/files?limit=1000", projectKey, repositorySlug);
+        ResponseEntity<String> response = bitbucketRestClient.get()
+                .uri(filesUri)
+                .retrieve()
+                .toEntity(String.class);
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode values = root.path("values");
+            if (values.isArray()) {
+                for (JsonNode node : values) {
+                    String filePath = node.asText();
+                    if (filePath.endsWith(MD_EXTENSION) && !isExcluded(filePath)) {
+                        processMarkdownFile(projectKey, repositorySlug, filePath, exportDir);
+                    }
+                }
             }
         }
     }
 
-    private void processMarkdownFile(GHRepository repository, GHTreeEntry entry, String repoFullName, Path exportDir) throws IOException {
-        String path = entry.getPath();
-        log.info("Processing file: {} in {}", path, repoFullName);
+    private String[] parseProjectAndRepo(String url) {
+        String[] parts = url.split("/");
+        String projectKey = null;
+        String repositorySlug = null;
+        for (int i = 0; i < parts.length; i++) {
+            if ("projects".equals(parts[i]) && i + 1 < parts.length) {
+                projectKey = parts[i + 1];
+            }
+            if ("repos".equals(parts[i]) && i + 1 < parts.length) {
+                repositorySlug = parts[i + 1];
+            }
+        }
+        return new String[]{projectKey, repositorySlug};
+    }
 
-        GHContent content = repository.getFileContent(path);
-        String rawContent;
-        try (var is = content.read()) {
-            rawContent = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+    private void processMarkdownFile(String projectKey, String repositorySlug, String filePath, Path exportDir) throws IOException {
+        log.info("Processing file: {} in {}/{}", filePath, projectKey, repositorySlug);
+
+        String rawUri = String.format("/rest/api/1.0/projects/%s/repos/%s/raw/%s", projectKey, repositorySlug, filePath);
+        ResponseEntity<String> response;
+        try {
+            response = bitbucketRestClient.get()
+                    .uri(rawUri)
+                    .retrieve()
+                    .toEntity(String.class);
+        } catch (Exception e) {
+            log.warn("Failed to download raw markdown file: {} due to {}", filePath, e.getMessage());
+            return;
         }
 
-        String processedContent = processImagesAndReplace(repository, path, rawContent, repoFullName, exportDir);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            log.warn("Failed to download raw markdown file: {} status {} location {}", filePath, response.getStatusCode(), response.getHeaders().getLocation());
+            return;
+        }
 
-        String filename = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
-        String githubFileUrl = content.getHtmlUrl();
-        String lastUpdated = repository.getPushedAt() != null ? repository.getPushedAt().toInstant().toString() : "";
+        String rawContent = response.getBody();
+        String processedContent = processImagesAndReplace(projectKey, repositorySlug, filePath, rawContent, exportDir);
+
+        String filename = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
+        String bitbucketFileUrl = String.format("%s/projects/%s/repos/%s/browse/%s", bitbucketProperties.getBaseUrl(), projectKey, repositorySlug, filePath);
 
         StringBuilder sb = new StringBuilder();
         sb.append(FRONTMATTER_DASHES);
         sb.append("title: '").append(filename).append("'\n");
-        sb.append("url: '").append(githubFileUrl).append("'\n");
-        if (!lastUpdated.isEmpty()) {
-            sb.append("last_updated: '").append(lastUpdated).append("'\n");
-        }
+        sb.append("url: '").append(bitbucketFileUrl).append("'\n");
         sb.append(FRONTMATTER_DASHES).append("\n");
         sb.append(processedContent);
 
-        String repoSafeName = GH_PREFIX + repoFullName.replace("/", "-");
-        String safePath = path.replace("/", "_");
-        Path targetFile = exportDir.resolve(repoSafeName + "_" + safePath);
+        String repoSafeName = BB_PREFIX + projectKey + "_" + repositorySlug;
+        String safePath = filePath.replace("/", "_");
+        Path targetFile = exportDir.resolve("bb_" + projectKey + "_" + repositorySlug + "_" + safePath);
 
         Files.writeString(targetFile, sb.toString(), StandardCharsets.UTF_8);
         log.info("Saved to: {}", targetFile);
@@ -170,8 +207,8 @@ public class GithubMarkdownScraper implements DocumentScraper {
 
     private record ImageReplacement(int startOffset, int endOffset, String safeName) {}
 
-    private String processImagesAndReplace(GHRepository repository, String mdPath, String content, String repoFullName, Path exportDir) {
-        String repoSafeName = GH_PREFIX + repoFullName.replace("/", "-");
+    private String processImagesAndReplace(String projectKey, String repositorySlug, String mdPath, String content, Path exportDir) {
+        String repoSafeName = BB_PREFIX + projectKey + "-" + repositorySlug;
         Path assetsDir = exportDir.resolve(ASSETS_DIR).resolve(repoSafeName);
         try {
             Files.createDirectories(assetsDir);
@@ -188,7 +225,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
         NodeVisitor visitor = new NodeVisitor(
                 new VisitHandler<>(Image.class, image -> {
                     String url = image.getUrl().toString();
-                    String safeImageName = processImage(repository, mdPath, url, assetsDir);
+                    String safeImageName = processImage(projectKey, repositorySlug, mdPath, url, assetsDir);
                     if (safeImageName != null) {
                         replacements.add(new ImageReplacement(image.getStartOffset(), image.getEndOffset(), safeImageName));
                     }
@@ -206,9 +243,9 @@ public class GithubMarkdownScraper implements DocumentScraper {
         return sb.toString();
     }
 
-    private String processImage(GHRepository repository, String mdPath, String url, Path assetsDir) {
+    private String processImage(String projectKey, String repositorySlug, String mdPath, String url, Path assetsDir) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-            return githubRetryTemplate.execute(context -> {
+            return retryTemplate.execute(context -> {
                 try {
                     return downloadExternalImage(url, assetsDir);
                 } catch (IOException e) {
@@ -217,9 +254,9 @@ public class GithubMarkdownScraper implements DocumentScraper {
             });
         } else {
             String resolvedPath = resolveRelativePath(mdPath, url);
-            return githubRetryTemplate.execute(context -> {
+            return retryTemplate.execute(context -> {
                 try {
-                    return downloadGitHubImage(repository, resolvedPath, assetsDir);
+                    return downloadBitbucketImage(projectKey, repositorySlug, resolvedPath, assetsDir);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -260,19 +297,29 @@ public class GithubMarkdownScraper implements DocumentScraper {
         return parent;
     }
 
-    private String downloadGitHubImage(GHRepository repository, String path, Path assetsDir) throws IOException {
+    private String downloadBitbucketImage(String projectKey, String repositorySlug, String path, Path assetsDir) throws IOException {
         String safeName = path.replace("/", "_");
-        GHContent content = repository.getFileContent(path);
-        if (content.isFile()) {
-            Path target = assetsDir.resolve(safeName);
-            if (Files.exists(target)) {
-                log.debug("GitHub image already exists, skipping: {}", path);
-                return safeName;
-            }
-            try (var is = content.read()) {
-                Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
-                log.info("Downloaded GitHub image: {} to {}", path, target);
-            }
+        Path target = assetsDir.resolve(safeName);
+        if (Files.exists(target)) {
+            log.debug("Bitbucket image already exists, skipping: {}", path);
+            return safeName;
+        }
+
+        String rawUri = String.format("/rest/api/1.0/projects/%s/repos/%s/raw/%s", projectKey, repositorySlug, path);
+        ResponseEntity<byte[]> response;
+        try {
+             response = bitbucketRestClient.get()
+                .uri(rawUri)
+                .retrieve()
+                .toEntity(byte[].class);
+        } catch (Exception e) {
+             log.warn("Failed to download relative image: {}", path);
+             return safeName;
+        }
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            Files.write(target, response.getBody());
+            log.info("Downloaded Bitbucket image: {} to {}", path, target);
         }
         return safeName;
     }
@@ -292,18 +339,20 @@ public class GithubMarkdownScraper implements DocumentScraper {
             return filename;
         }
 
-        ResponseEntity<byte[]> response = githubRestClient.get()
+        ResponseEntity<byte[]> response;
+        try {
+             response = bitbucketRestClient.get()
                 .uri(url)
                 .retrieve()
                 .toEntity(byte[].class);
+        } catch (Exception e) {
+             log.warn("Failed to download external image: {}", url);
+             return filename;
+        }
 
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
             Files.write(target, response.getBody());
             log.info("Downloaded external image: {} to {}", url, target);
-        } else {
-            log.warn("Failed to download external image: {} (Status: {})", url, response.getStatusCode());
-            Files.deleteIfExists(target);
-            throw new IOException("Failed to download image " + url + " - status: " + response.getStatusCode());
         }
         return filename;
     }

@@ -1,6 +1,8 @@
 package ch.sbb.greenrover.rag.config;
 
 import ch.sbb.greenrover.rag.service.Assistant;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
@@ -14,11 +16,9 @@ import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.rag.query.transformer.QueryTransformer;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
+import dev.langchain4j.store.embedding.pgvector.PgVectorEmbeddingStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,6 +26,7 @@ import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -47,10 +48,12 @@ public class RagConfiguration {
     }
 
     @Bean
-    ChatModel chatModel(BedrockRuntimeClient client,
-                        @Value("${rag.chat.model-id}") String modelId,
-                        @Value("${rag.chat.temperature}") Double temperature,
-                        @Value("${rag.chat.max-output-tokens}") Integer maxOutputTokens) {
+    ChatModel chatModel(
+            BedrockRuntimeClient client,
+            @Value("${rag.chat.model-id}") String modelId,
+            @Value("${rag.chat.temperature}") Double temperature,
+            @Value("${rag.chat.max-output-tokens}") Integer maxOutputTokens
+    ) {
         return BedrockChatModel.builder()
                 .client(client)
                 .modelId(modelId)
@@ -70,15 +73,44 @@ public class RagConfiguration {
     }
 
     @Bean
-    EmbeddingStore<TextSegment> embeddingStore() {
-        return new InMemoryEmbeddingStore<>();
+    EmbeddingStore<TextSegment> embeddingStore(
+            @Value("${spring.datasource.url}") String url,
+            @Value("${spring.datasource.username}") String user,
+            @Value("${spring.datasource.password}") String password
+    ) {
+        URI uri = URI.create(url.substring(5)); // Remove "jdbc:"
+        String host = uri.getHost();
+        int port = uri.getPort() != -1 ? uri.getPort() : 5432;
+        String database = uri.getPath().substring(1);
+
+        String schema = "public";
+        if (uri.getQuery() != null) {
+            for (String param : uri.getQuery().split("&")) {
+                if (param.startsWith("currentSchema=")) {
+                    schema = param.substring("currentSchema=".length());
+                    break;
+                }
+            }
+        }
+
+        return PgVectorEmbeddingStore.builder()
+                .host(host)
+                .port(port)
+                .database(database)
+                .user(user)
+                .password(password)
+                .table(schema + ".embeddings")
+                .dimension(1024) // Titan v2 text
+                .build();
     }
 
     @Bean
-    ContentRetriever contentRetriever(EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel,
+    ContentRetriever contentRetriever(
+            EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel,
                                       @Value("${rag.retriever.max-results}") Integer maxResults,
                                       @Value("${rag.retriever.min-score}") Double minScore,
-                                      @Value("${rag.retriever.max-context-length}") Integer maxContextLength) {
+                                      @Value("${rag.retriever.max-context-length}") Integer maxContextLength
+    ) {
         ContentRetriever delegate = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)

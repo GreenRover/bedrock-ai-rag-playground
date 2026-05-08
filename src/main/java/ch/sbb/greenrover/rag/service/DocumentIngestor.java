@@ -8,83 +8,65 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.core.io.Resource;
-import org.springframework.stereotype.Component;
+import jakarta.annotation.PostConstruct;
+import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 
-@Component
+@SuppressWarnings("NullableProblems")
+@Service
 @Slf4j
-public class CorpusIngestor implements CommandLineRunner {
+@RequiredArgsConstructor
+public class DocumentIngestor {
 
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
-    private final Resource confluenceFileRes;
 
-    private static final Pattern URL_PATTERN = Pattern.compile("url: (https?://[^\\s]+)");
+    private EmbeddingStoreIngestor ingestor;
+
+    private static final Pattern URL_PATTERN = Pattern.compile("url: (https?://\\S+)");
     private static final Pattern TITLE_PATTERN = Pattern.compile("title: (.*)");
     private static final Pattern TITLE_PATH_PATTERN = Pattern.compile("title_path: '(.*)'");
     private static final Pattern OUTBOUND_LINKS_PATTERN = Pattern.compile("outbound_links: '(.*)'");
-    private static final String SCANNER_DELIMITER = "(?m)^={70}\\r?\\n=== FILE: ";
+    private static final Pattern LAST_UPDATED_PATTERN = Pattern.compile("last_updated: '(.*)'");
 
-    public CorpusIngestor(
-            EmbeddingModel embeddingModel,
-            EmbeddingStore<TextSegment> embeddingStore,
-            @Value("${confluence.corpus.file:classpath:messaging_support_corpus.txt}") Resource confluenceFileRes) {
-        this.embeddingModel = embeddingModel;
-        this.embeddingStore = embeddingStore;
-        this.confluenceFileRes = confluenceFileRes;
-    }
-
-    @Override
-    public void run(String... args) {
-        try {
-            EmbeddingStoreIngestor ingestor = createIngestor();
-
-            if (!confluenceFileRes.exists()) {
-                log.warn("Corpus file not found: {}. Skipping ingestion.", confluenceFileRes.getDescription());
-                return;
-            }
-
-            log.info("Starting corpus ingestion from {}...", confluenceFileRes.getDescription());
-            try (Scanner scanner = new Scanner(confluenceFileRes.getInputStream(), StandardCharsets.UTF_8)) {
-                scanner.useDelimiter(SCANNER_DELIMITER);
-                int count = 0;
-                while (scanner.hasNext()) {
-                    processDocumentPart(scanner.next(), ingestor);
-                    count++;
-                }
-                log.info("Corpus ingestion completed successfully. Processed {} parts.", count);
-            }
-        } catch (Exception e) {
-            log.error("Failed to ingest corpus: {}. The application will continue, but RAG might not have latest data.", e.getMessage());
-            log.debug("Detailed error during ingestion:", e);
-        }
-    }
-
-    private EmbeddingStoreIngestor createIngestor() {
+    @PostConstruct
+    public void init() {
         log.info("Initializing EmbeddingStoreIngestor with Markdown-aware chunking strategy.");
-        return EmbeddingStoreIngestor.builder()
+        this.ingestor = EmbeddingStoreIngestor.builder()
                 .documentSplitter(new MarkdownDocumentSplitter(1000, 150))
                 .embeddingModel(embeddingModel)
                 .embeddingStore(embeddingStore)
                 .build();
     }
 
+    public void ingestDocument(String filename, String content) {
+        if (shouldSkip(content)) {
+            return;
+        }
+
+        Metadata metadata = extractMetadata(content);
+        metadata.put("file_name", filename);
+
+        String text = extractCleanText(content);
+
+        if (text.length() >= 100) {
+            Document document = Document.document(text, metadata);
+            ingestor.ingest(document);
+        }
+    }
+
     /**
      * Custom Markdown-aware DocumentSplitter that splits primarily by Markdown headers
      * and paragraphs, while enforcing maximum segment size constraints.
      */
-    private static class MarkdownDocumentSplitter implements DocumentSplitter {
+    static class MarkdownDocumentSplitter implements DocumentSplitter {
         private final int maxSegmentSize;
         private final DocumentSplitter recursiveFallback;
 
@@ -96,19 +78,40 @@ public class CorpusIngestor implements CommandLineRunner {
         @Override
         public List<TextSegment> split(Document document) {
             log.debug("Splitting document with Markdown-aware strategy. Length: {}", document.text().length());
-            // Split by Markdown headers (e.g., #, ##, ###) using a positive lookahead to keep headers with content
-            String[] headerParts = document.text().split("(?m)(?=^#+ )");
+            String text = document.text();
+
+            // Basic splitting that captures hierarchy
+            String[] parts = text.split("(?m)(?=^#+ )");
 
             List<TextSegment> allSegments = new ArrayList<>();
-            for (String part : headerParts) {
+            String lastH1 = null;
+            String lastH2 = null;
+
+            for (String part : parts) {
                 if (part.isBlank()) continue;
 
+                String parentContext = "";
+                if (part.startsWith("# ")) {
+                    lastH1 = part.substring(2, part.indexOf('\n') > 0 ? part.indexOf('\n') : part.length()).trim();
+                    lastH2 = null;
+                } else if (part.startsWith("## ")) {
+                    lastH2 = part.substring(3, part.indexOf('\n') > 0 ? part.indexOf('\n') : part.length()).trim();
+                    if (lastH1 != null) parentContext = lastH1;
+                } else if (part.startsWith("### ")) {
+                    if (lastH1 != null) parentContext = lastH1;
+                    if (lastH2 != null) parentContext += " > " + lastH2;
+                }
+
+                Metadata metadata = document.metadata().copy();
+                if (!parentContext.isEmpty()) {
+                    metadata.put("parent_context", parentContext);
+                }
+
                 if (part.length() > maxSegmentSize) {
-                    // If the section is too large, use recursive splitting for paragraphs and lines
-                    Document subDoc = Document.document(part, document.metadata());
+                    Document subDoc = Document.document(part, metadata);
                     allSegments.addAll(recursiveFallback.split(subDoc));
                 } else {
-                    allSegments.add(TextSegment.from(part, document.metadata()));
+                    allSegments.add(TextSegment.from(part, metadata));
                 }
             }
             log.debug("Document split into {} segments.", allSegments.size());
@@ -116,19 +119,6 @@ public class CorpusIngestor implements CommandLineRunner {
         }
     }
 
-    private void processDocumentPart(String part, EmbeddingStoreIngestor ingestor) {
-        if (shouldSkip(part)) {
-            return;
-        }
-
-        Metadata metadata = extractMetadata(part);
-        String text = extractCleanText(part);
-
-        if (text.length() >= 100) {
-            Document document = Document.document(text, metadata);
-            ingestor.ingest(document);
-        }
-    }
 
     private boolean shouldSkip(String part) {
         String trimmed = part.trim();
@@ -160,6 +150,11 @@ public class CorpusIngestor implements CommandLineRunner {
             metadata.put("outbound_links", outboundLinksMatcher.group(1));
         }
 
+        Matcher lastUpdatedMatcher = LAST_UPDATED_PATTERN.matcher(part);
+        if (lastUpdatedMatcher.find()) {
+            metadata.put("last_updated", lastUpdatedMatcher.group(1));
+        }
+
         return metadata;
     }
 
@@ -171,7 +166,7 @@ public class CorpusIngestor implements CommandLineRunner {
                 return part.substring(secondDash + 3).trim();
             }
         }
-        return part.replaceFirst("(?s)^.*?===\\r?\\n={70}\\r?\\n", "").trim();
+        return part.trim();
     }
 }
 

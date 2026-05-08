@@ -38,13 +38,13 @@ class GithubMarkdownScraperTest {
     void setUp() {
         translationService = mock(BedrockMediaTranslationService.class);
         githubProperties = new GithubProperties();
-        githubProperties.setExportDir(tempDir.toString());
         gitHub = mock(GitHub.class);
 
         restClient = mock(RestClient.class);
         retryTemplate = new RetryTemplate();
 
         scraper = new GithubMarkdownScraper(translationService, githubProperties, gitHub, restClient, retryTemplate);
+        ReflectionTestUtils.setField(scraper, "exportDirString", tempDir.toString());
     }
 
     @Test

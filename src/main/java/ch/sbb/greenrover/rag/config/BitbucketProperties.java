@@ -8,8 +8,9 @@ import java.util.List;
 
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "github")
-public class GithubProperties {
+@ConfigurationProperties(prefix = "bitbucket")
+public class BitbucketProperties {
     private String token;
     private List<String> repositories;
+    private String baseUrl = "https://code.sbb.ch";
 }

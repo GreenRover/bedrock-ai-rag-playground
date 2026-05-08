@@ -1,6 +1,5 @@
 target
-.mvn
 .env
 .idea
 src/main/resources/messaging_support_corpus.txt
-messaging_support_export
+data_export

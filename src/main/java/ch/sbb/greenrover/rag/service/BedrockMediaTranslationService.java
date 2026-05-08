@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.PdfFileContent;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.message.VideoContent;
+import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -16,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import org.apache.tika.Tika;
 
 @Slf4j
 @Service
@@ -23,10 +25,20 @@ import java.util.Base64;
 public class BedrockMediaTranslationService {
 
     private final ChatModel chatModel;
+    private final Tika tika = new Tika();
 
     public void extractTextWithBedrock(Path targetFile, String title, Path pageAssetsDir) {
         try {
-            String mimeType = Files.probeContentType(targetFile);
+            String mimeType = tika.detect(targetFile);
+
+            if ("text/plain".equals(mimeType)) {
+                log.info("File {} detected as text/plain, retaining content directly", title);
+                String content = Files.readString(targetFile, StandardCharsets.UTF_8);
+                Path textFile = pageAssetsDir.resolve(title + ".md");
+                Files.writeString(textFile, content, StandardCharsets.UTF_8);
+                return;
+            }
+
             if (isUnsupported(mimeType, title)) {
                 return;
             }
@@ -146,11 +158,17 @@ public class BedrockMediaTranslationService {
 
     private void processWithModel(UserMessage userMessage, String title, Path pageAssetsDir) throws Exception {
         log.info("Processing asset with Bedrock: {}", title);
-        ChatResponse response = chatModel.chat(ChatRequest.builder().messages(userMessage).build());
-        String extractedText = response.aiMessage().text();
-
         Path textFile = pageAssetsDir.resolve(title + ".md");
-        Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
-        log.info("Extracted text saved to {}", textFile);
+        try {
+            ChatResponse response = chatModel.chat(ChatRequest.builder().messages(userMessage).build());
+            String extractedText = response.aiMessage().text();
+
+
+            Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
+            log.info("Extracted text saved to {}", textFile);
+        } catch (InvalidRequestException e) {
+            log.error("Error processing asset with Bedrock: {}", textFile, e);
+            throw e;
+        }
     }
 }
