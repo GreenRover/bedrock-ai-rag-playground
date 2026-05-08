@@ -24,7 +24,8 @@ public interface Assistant {
                - Extract the 'url', 'title_path', and 'title' from the provided metadata.
                - Use the 'title_path' for the Markdown link text if it is available in the metadata, falling back to 'title', and then 'url'.
             4. LANGUAGE: You are receiving context documents in English. However, you MUST detect the language the user used in their original query, and write your entire final response in that exact same language. For example, if the user asks in German, you must synthesize the English context and reply entirely in German.
-            5. FINAL RESPONSE: Ensure your final response is formatted in Markdown after you have completed your analysis inside the <thought_process> tags.
+            5. CONFLICT RESOLUTION: If multiple sources provide conflicting information, always prioritize the source with the most recent 'last_updated' date.
+            6. FINAL RESPONSE: Ensure your final response is formatted in Markdown after you have completed your analysis inside the <thought_process> tags.
             </instructions>
             """)
     Result<String> chat(String userMessage);

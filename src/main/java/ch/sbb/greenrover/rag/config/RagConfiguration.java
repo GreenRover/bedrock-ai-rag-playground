@@ -10,10 +10,10 @@ import dev.langchain4j.model.bedrock.BedrockTitanEmbeddingModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.rag.DefaultRetrievalAugmentor;
-import dev.langchain4j.rag.content.Content;
+import dev.langchain4j.rag.content.aggregator.ContentAggregator;
+import dev.langchain4j.rag.content.aggregator.ReRankingContentAggregator;
 import dev.langchain4j.rag.content.injector.DefaultContentInjector;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
-import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.rag.query.transformer.QueryTransformer;
 import dev.langchain4j.service.AiServices;
@@ -27,10 +27,8 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 @Configuration
 public class RagConfiguration {
@@ -105,38 +103,20 @@ public class RagConfiguration {
     }
 
     @Bean
-    ContentRetriever contentRetriever(
-            EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel,
-                                      @Value("${rag.retriever.max-results}") Integer maxResults,
-                                      @Value("${rag.retriever.min-score}") Double minScore,
-                                      @Value("${rag.retriever.max-context-length}") Integer maxContextLength
-    ) {
-        ContentRetriever delegate = EmbeddingStoreContentRetriever.builder()
+    ContentRetriever contentRetriever(EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel) {
+        return dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
-                .maxResults(maxResults)
-                .minScore(minScore)
+                .maxResults(50)
                 .build();
+    }
 
-        return query -> {
-            System.out.println("[DEBUG] User Query Token Length (chars): " + query.text().length());
-            List<Content> contents = delegate.retrieve(query);
-
-            int currentLength = 0;
-            List<Content> limitedContents = new ArrayList<>();
-            for (Content c : contents) {
-                int len = c.textSegment().text().length();
-                if (currentLength + len <= maxContextLength) {
-                    limitedContents.add(c);
-                    currentLength += len;
-                } else {
-                    break;
-                }
-            }
-
-            System.out.println("[DEBUG] RAG Injected Context Token Length (chars): " + currentLength);
-            return limitedContents;
-        };
+    @Bean
+    ContentAggregator contentAggregator(ch.sbb.greenrover.rag.service.BedrockCohereScoringModel scoringModel) {
+        return ReRankingContentAggregator.builder()
+                .scoringModel(scoringModel)
+                .minScore(0.5)
+                .build();
     }
 
     @Bean
@@ -165,14 +145,15 @@ public class RagConfiguration {
     }
 
     @Bean
-    Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever, QueryTransformer translationQueryTransformer) {
+    Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever, QueryTransformer translationQueryTransformer, ContentAggregator contentAggregator) {
         DefaultContentInjector contentInjector = DefaultContentInjector.builder()
-                .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links"))
+                .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links", "parent_context", "last_updated"))
                 .build();
 
         DefaultRetrievalAugmentor augmentor = DefaultRetrievalAugmentor.builder()
                 .queryTransformer(translationQueryTransformer)
                 .contentRetriever(contentRetriever)
+                .contentAggregator(contentAggregator)
                 .contentInjector(contentInjector)
                 .build();
 
