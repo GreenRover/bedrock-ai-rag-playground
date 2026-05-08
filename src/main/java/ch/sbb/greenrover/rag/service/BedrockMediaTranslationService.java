@@ -63,13 +63,14 @@ public class BedrockMediaTranslationService {
             log.debug("Skipping file {} with unknown mime type", title);
             return true;
         }
+        // Only pdf and images are supported: dev.langchain4j.model.bedrock.AbstractBedrockChatModel.convertContent
         if (mimeType.startsWith("image/")) {
             if (!mimeType.equals("image/png") && !mimeType.equals("image/jpeg") &&
                 !mimeType.equals("image/gif") && !mimeType.equals("image/webp")) {
                 log.debug("Skipping unsupported image format {} for file {}", mimeType, title);
                 return true;
             }
-        } else if (!mimeType.equals("application/pdf") && !mimeType.startsWith("video/")) {
+        } else if (!mimeType.equals("application/pdf")) {
             log.debug("Skipping unsupported mime type {} for file {}", mimeType, title);
             return true;
         }
@@ -167,6 +168,10 @@ public class BedrockMediaTranslationService {
             Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
             log.info("Extracted text saved to {}", textFile);
         } catch (InvalidRequestException e) {
+            if (e.getMessage().contains("tokens exceeds maximum length")) {
+                log.warn("Bedrock response exceeded token limit for file {}. Consider implementing chunking for large files. Error: {}", textFile, e.getMessage());
+                return;
+            }
             log.error("Error processing asset with Bedrock: {}", textFile, e);
             throw e;
         }

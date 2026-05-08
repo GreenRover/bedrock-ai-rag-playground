@@ -3,6 +3,7 @@ package ch.sbb.greenrover.rag.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.document.Metadata;
+import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.rag.content.Content;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +38,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PostgresHybridRetriever implements ContentRetriever {
 
+    public final static String TABLE_NAME = "embeddings";
+
     private final JdbcTemplate jdbcTemplate;
     private final EmbeddingModel embeddingModel;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -47,12 +51,33 @@ public class PostgresHybridRetriever implements ContentRetriever {
 
         String vectorStr = java.util.Arrays.toString(queryEmbedding.vector());
 
-        String sql = "SELECT text, metadata, " +
-                "((1.0 / (1.0 + (embedding <-> ?::vector))) + " +
-                "ts_rank_cd(to_tsvector('english', text), plainto_tsquery('english', ?))) AS score " +
-                "FROM public.embeddings " +
-                "WHERE text @@ plainto_tsquery('english', ?) OR embedding <-> ?::vector < 0.5 " +
-                "ORDER BY score DESC LIMIT 50";
+        // Use a CTE to pull top 50 by vector, top 50 by text, then combine and re-score.
+        // Also using <=> (Cosine Distance) instead of <-> (L2 Distance).
+        String sql = """
+            WITH semantic_search AS (
+                SELECT embedding_id, text, metadata,
+                       (1.0 - (embedding OPERATOR(public.<=>) ?::public.vector)) AS v_score
+                FROM $table$
+                ORDER BY embedding OPERATOR(public.<=>) ?::public.vector
+                LIMIT 50
+            ),
+            keyword_search AS (
+                SELECT embedding_id, text, metadata,
+                       ts_rank_cd(to_tsvector('english', text), websearch_to_tsquery('english', ?)) AS k_score
+                FROM $table$
+                WHERE text @@ websearch_to_tsquery('english', ?)
+                ORDER BY k_score DESC
+                LIMIT 50
+            )
+            SELECT
+                COALESCE(s.text, k.text) AS text,
+                COALESCE(s.metadata, k.metadata) AS metadata,
+                (COALESCE(s.v_score, 0.0) + COALESCE(k.k_score, 0.0)) AS score
+            FROM semantic_search s
+            FULL OUTER JOIN keyword_search k ON s.embedding_id = k.embedding_id
+            ORDER BY score DESC
+            LIMIT 50
+            """.replace("$table$", TABLE_NAME);
 
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             String text = rs.getString("text");
@@ -60,8 +85,7 @@ public class PostgresHybridRetriever implements ContentRetriever {
             Metadata metadata = new Metadata();
             if (metadataJson != null && !metadataJson.isEmpty()) {
                 try {
-                    Map<String, Object> map = objectMapper.readValue(metadataJson, new TypeReference<Map<String, Object>>() {
-                    });
+                    Map<String, Object> map = objectMapper.readValue(metadataJson, new TypeReference<Map<String, Object>>() {});
                     if (map != null) {
                         map.forEach((k, v) -> metadata.put(k, v != null ? v.toString() : ""));
                     }
@@ -70,6 +94,6 @@ public class PostgresHybridRetriever implements ContentRetriever {
                 }
             }
             return Content.from(TextSegment.from(text, metadata));
-        }, vectorStr, queryText, queryText, vectorStr);
+        }, vectorStr, vectorStr, queryText, queryText);
     }
 }

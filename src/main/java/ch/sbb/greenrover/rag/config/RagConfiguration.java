@@ -1,6 +1,8 @@
 package ch.sbb.greenrover.rag.config;
 
 import ch.sbb.greenrover.rag.service.Assistant;
+import ch.sbb.greenrover.rag.service.BedrockAmazonScoringModel;
+import ch.sbb.greenrover.rag.service.PostgresHybridRetriever;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
@@ -97,25 +99,22 @@ public class RagConfiguration {
                 .database(database)
                 .user(user)
                 .password(password)
-                .table(schema + ".embeddings")
+                .table(schema + "." + PostgresHybridRetriever.TABLE_NAME)
                 .dimension(1024) // Titan v2 text
                 .build();
     }
 
     @Bean
-    ContentRetriever contentRetriever(EmbeddingStore<TextSegment> embeddingStore, EmbeddingModel embeddingModel) {
-        return dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever.builder()
-                .embeddingStore(embeddingStore)
-                .embeddingModel(embeddingModel)
-                .maxResults(50)
-                .build();
+    ContentRetriever contentRetriever(PostgresHybridRetriever postgresHybridRetriever) {
+        return postgresHybridRetriever;
     }
 
     @Bean
-    ContentAggregator contentAggregator(ch.sbb.greenrover.rag.service.BedrockCohereScoringModel scoringModel) {
+    ContentAggregator contentAggregator(BedrockAmazonScoringModel scoringModel) {
         return ReRankingContentAggregator.builder()
                 .scoringModel(scoringModel)
-                .minScore(0.5)
+                .minScore(0.05)
+                .maxResults(10)
                 .build();
     }
 

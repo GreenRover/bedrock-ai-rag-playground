@@ -15,7 +15,10 @@ confluence:
     url: ${confluence.base-url}
     token: ${confluence.token}
   base-url: https://confluence.sbb.ch
-  start-page-id: 1262683220,1257836039 # sttrs messaging, TRS Monitoring Alerting
+  start-page-id:
+  - 1262683220 # sttrs messaging
+  - 1257836039 # TRS Monitoring Alerting
+  - 1769768106 # Architecture+Governance
   token: ${CONFLUENCE_TOKEN}
 
 github:

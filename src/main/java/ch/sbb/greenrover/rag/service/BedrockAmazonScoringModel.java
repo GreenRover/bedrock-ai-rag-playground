@@ -23,7 +23,7 @@ import dev.langchain4j.model.output.Response;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class BedrockCohereScoringModel implements ScoringModel {
+public class BedrockAmazonScoringModel implements ScoringModel {
 
     private final BedrockRuntimeClient bedrockRuntimeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();

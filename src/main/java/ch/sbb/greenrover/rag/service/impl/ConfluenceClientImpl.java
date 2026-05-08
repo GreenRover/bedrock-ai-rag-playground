@@ -64,7 +64,8 @@ public class ConfluenceClientImpl implements ConfluenceClient {
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 // Add a small delay between requests to avoid DDoS
-                Thread.sleep(100L);
+                // Vai trial and error to not trigger confluence rate limit
+                Thread.sleep(150L);
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(baseUrl + path))

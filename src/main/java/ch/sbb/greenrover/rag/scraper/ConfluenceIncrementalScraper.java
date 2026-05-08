@@ -1,5 +1,6 @@
 package ch.sbb.greenrover.rag.scraper;
 
+import ch.sbb.greenrover.rag.config.ConfluenceProperties;
 import ch.sbb.greenrover.rag.service.BedrockMediaTranslationService;
 import ch.sbb.greenrover.rag.service.ConfluenceClient;
 import ch.sbb.greenrover.rag.service.ConfluenceToMarkdownService;
@@ -30,8 +31,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
     private static final String CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100 = "/child/attachment?limit=100";
     private static final String CONFLUENCE_API_CONTENT_PATH = "/rest/api/content/";
 
-    @Value("${confluence.start-page-id}")
-    private java.util.List<String> startPageIds;
+    private final ConfluenceProperties confluenceProperties;
 
     @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
@@ -51,10 +51,12 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     public ConfluenceIncrementalScraper(ConfluenceClient confluenceClient,
                                        BedrockMediaTranslationService bedrockMediaTranslationService,
-                                       ConfluenceToMarkdownService confluenceToMarkdownService) {
+                                       ConfluenceToMarkdownService confluenceToMarkdownService,
+                                       ConfluenceProperties confluenceProperties) {
         this.confluenceClient = confluenceClient;
         this.bedrockMediaTranslationService = bedrockMediaTranslationService;
         this.confluenceToMarkdownService = confluenceToMarkdownService;
+        this.confluenceProperties = confluenceProperties;
     }
 
     @PostConstruct
@@ -73,7 +75,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     private void resyncConfluence() throws Exception {
         loadSyncState();
-        for (String startPageId : startPageIds) {
+        for (String startPageId : confluenceProperties.getStartPageId()) {
             log.info("Starting incremental sync from page {}", startPageId);
             processPageAndChildren(startPageId, null, 0, "");
         }
