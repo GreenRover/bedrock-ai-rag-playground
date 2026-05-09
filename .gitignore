@@ -1,5 +1,4 @@
 target
 .env
 .idea
-src/main/resources/messaging_support_corpus.txt
 data_export

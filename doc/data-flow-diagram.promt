@@ -1,0 +1,81 @@
+as software architect draw a diagram:
+
+A detailed and precisely organized system architecture diagram titled "Bedrock AI RAG Playground" at the top center in large black text. The diagram is laid out with color-coded, labeled sections.
+
+Overall Style: A clean-line illustrative diagram with color-coded background boxes for major sections and colored rounded rectangles for components, with clear black text and directional arrow-headed connecting lines with specific text labels. All background boxes are light gray unless otherwise noted.
+
+Main Sections and Flow:
+
+Documentation Sources (Light Gray Box, Top Left, labeled): Contains three stacked rounded gray boxes with black text: "Confluence (HTML/Wiki)", "GitHub (Markdown Files)", and "Bitbucket (Markdown Files)".
+
+Data Acquisition & Ingestion (Light Blue Box, Top Center, labeled):
+
+Top: Three light blue scraper boxes with gear icons, labeled "ConfluenceScraper", "GithubScraper", "BitbucketScraper". Below each others. Lines connect from the respective Documentation Sources to these scrapers.
+Confluence (HTML/Wiki) is left of ConfluenceScraper. The arrow labeled "scrape" goes from Confluence to ConfluenceScraper.
+GitHub (Markdown Files) is left of GithubScraper. The arrow labeled "scrape" goes from GitHub to GithubScraper.
+Bitbucket (Markdown Files) is left of BitbucketScraper. The arrow labeled "scrape" goes from  Bitbucket to BitbucketScraper.
+
+
+Top-Right: Small text labels "Multimodal Path" and "Translation Path". Two green-bordered boxes with icons: "BedrockMediaTranslation (OCR/Vision), Bedrock Nova Vision" (with multimodal icon) and "DocumentTranslationService, Bedrock Nova Lite" (with translation icon).
+
+Center-Top: Larger blue box with a cloud icon, "DocumentBuilderService Orchestrator".
+
+Lines connect from "GithubScraper" and "BitbucketScraper" to the Orchestrator, labeled "scrape".
+
+A line connects "BedrockMediaTranslation" to the Orchestrator, labeled "Images & PDFs".
+
+A line connects "DocumentTranslationService" to the Orchestrator, labeled "translate Non-English Content".
+
+Center-Left Flow: "ConfluenceToMarkdownService" (blue box, sub-text "HTML to MD", "MD" icon). Line connects "ConfluenceScraper" to it.
+
+Below it: "MarkdownDocumentSplitter" (blue box, sub-text "Chunk to preserving hierarchy", "MD" icon). Line connects "ConfluenceToMarkdownService" to it.
+
+A line connects "MarkdownDocumentSplitter" to the Orchestrator, labeled "Chunk to final MD content".
+
+Retrieval Flow (Light Gray Box, Bottom Left/Center, labeled):
+
+A dark blue workflow. User icon at the very left with a line to "QueryTransformer".
+
+"QueryTransformer" (blue box) with gear icon.
+
+"PostgresHybridRetriever" (two stacked blue boxes).
+
+"query" label on lines going to "PostgresHybridRetriever".
+
+A loop: arrow goes from upper retriever to lower, and arrow goes from lower back to upper.
+
+A line labeled "response" goes from the lower retriever to "BedrockAmazonScoringModel (Rerank), Cross-Encoder" (blue box with gear icon).
+
+Lines go from "Assistant" (above) to "BedrockAmazonScoringModel" labeled "query", and from "BedrockAmazonScoringModel" back to "Assistant" labeled "response".
+
+A line connects the lower "PostgresHybridRetriever" to the "PostgreSQL" Knowledge Base cylinder.
+
+Knowledge Base (Light Green Box, Center, labeled): A green cylinder box labeled "PostgreSQL (pgvector + FTS)". A line labeled "Segmented Texts + Vectors" goes from "DocumentBuilderService Orchestrator" (above) to this cylinder.
+
+API & UI (Light Orange Box, Top Right, labeled): Two stacked orange boxes: "Chat UI (Browser)", "ChatController". Line goes from Chat UI to ChatController.
+
+AI Orchestration (Light Purple Box, Center Right, labeled): Large purple box with a robot icon: "Assistant (AI Service - LangChain4j)". This is the central connection hub.
+
+A line goes from "ChatController" to the Assistant.
+
+Lines labeled "embed" go from the right side of the Assistant to "LLM" and "Embeddings" in the section below.
+
+Lines labeled "query" and "response" go to "BedrockAmazonScoringModel" (Retrieval Flow).
+
+A line labeled "Live Query" goes from the bottom of the Assistant to the "Live Diagnostics" section.
+
+AWS Bedrock (Light Purple Box, Bottom Right, labeled): Three stacked purple boxes: "LLM (Nova Pro)", "Embeddings (Titan)", "Scoring/Rerank (Amazon)". Arrows connect from "Assistant" (above) to all three.
+
+Live Diagnostics (Light Red/Gray Box, Bottom Right, labeled):
+
+Two stacked red boxes: "SolaceBrokerTools", "SolaceBackendFacade". Arrow goes from Tools to Facade.
+
+A large red rounded box with a glowing cloud/infrastructure icon: "tms-ssp solace-backend". Arrow goes from "SolaceBackendFacade" to "tms-ssp solace-backend" .
+
+The "Live Query" arrow from the Assistant connects to "SolaceBackendFacade".
+
+All Text: Ensure all labels and text within components and on arrows are included verbatim, following the specific text case and placement. Use clear, legible, clean font. Ensure proper spacing between blocks and clean connection
+
+
+Arrow lines should be have rounded corners and be clearly visible, with arrowheads indicating direction. Use consistent color coding for sections and components as described.
+Arrow lines should not cross over or overlap with other arrows or text.

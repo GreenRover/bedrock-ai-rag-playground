@@ -1,28 +1,37 @@
 # LangChain4j RAG Application
 
-This is a Retrieval-Augmented Generation (RAG) application built using Spring Boot and LangChain4j. The purpose of this application is to demonstrate how to ingest a text corpus into a local embedding store and query it using an LLM via Amazon Bedrock, providing a web-based chat interface to interact with the knowledge base.
+A high-performance Retrieval-Augmented Generation (RAG) application for enterprise messaging support.
 
-It also features a scheduled Confluence and GitHub Scraper to automatically fetch pages, download attachments, extract text from images and PDFs using Bedrock, and sync markdown from GitHub repositories to keep the knowledge base up-to-date.
+## 🚀 Key Features
+- **Hybrid Search**: Combines PGVector semantic search with PostgreSQL Full-Text search.
+- **Multimodal**: Automatically extracts text from diagrams and PDFs using Amazon Bedrock.
+- **Multi-Source**: Scrapes data from Confluence, GitHub, and Bitbucket.
+- **Self-Healing Knowledge**: Automated translation of documentation into English for a unified vector space.
+- **Live Diagnostics**: AI Agent tools to query live Solace broker status.
 
-## Prerequisites
-- Java 21
-- Maven
-- AWS Credentials configured or an AWS Bearer Token
-- GitHub Token (optional, for GitHub scraping)
+## 🛠 Tech Stack
+- **Backend**: Java 21, Spring Boot 3.4
+- **AI**: LangChain4j, Amazon Bedrock (Nova Pro, Titan Embeddings)
+- **Database**: PostgreSQL with `pgvector`
+- **Processing**: Apache Tika (MIME detection), JSoup (HTML parsing), Flexmark (Markdown)
+
+## 📦 Modules
+- `scraper`: Logic for fetching data from external VCS/Wikis.
+- `service`: Core RAG logic (Ingestion, Translation, Retrieval).
+- `controller`: REST API endpoints.
+- `config`: Wiring of Bedrock clients and AI components.
 
 ## Local Setup
 1. **Install Dependencies:**
    Ensure you have Java 21 and Maven installed.
-2. **Inject Knowledge Base:**
-   Place your knowledge base text file at `src/main/resources/messaging_support_corpus.txt`. The application will parse and embed this corpus on startup.
-3. **Configure AWS Bedrock Access:**
+2. **Configure AWS Bedrock Access:**
    Provide the environment variable `AWS_BEARER_TOKEN_BEDROCK` to authenticate with Amazon Bedrock.
-4. **Configure Confluence Access (Optional but recommended for the Scraper):**
+3. **Configure Confluence Access (Optional but recommended for the Scraper):**
    Set the following environment variables or application properties to enable Confluence scraping:
    - `CONFLUENCE_BASE_URL` (e.g. `https://your-domain.atlassian.net/wiki`)
    - `CONFLUENCE_TOKEN` (Your Confluence API Token)
    - `CONFLUENCE_START_PAGE_ID` (e.g. `1262683220`)
-5. **Configure GitHub Access (Optional):**
+4. **Configure GitHub Access (Optional):**
    Provide the environment variable `GITHUB_TOKEN` to enable GitHub repository scraping.
 
 ### Why is the GITHUB_TOKEN necessary?
@@ -69,15 +78,12 @@ export $(grep -v '^#' .env | xargs)
 # ./mvnw spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--rebuild-rag"
 ```
 
-## Application Structure
-- `src/main/resources/static`: Contains the frontend web interface (`chat.html`, `chat.js`, `style.css`).
-- `src/main/resources/messaging_support_corpus.txt`: A text corpus used for the RAG knowledge base.
-- `src/main/resources/application.yml`: Application configuration.
-- `src/main/java/.../scraper`: Contains the `ConfluenceIncrementalScraper` and `GithubMarkdownScraper` which pull data from Confluence and GitHub and translate assets using Bedrock.
-
 ## API Documentation
 Once the application is running, you can access the Swagger UI to interact with the API endpoints:
 `http://localhost:8080/swagger-ui.html`
 
 ## Interacting with the App
 A web-based chat interface is available at `http://localhost:8080/chat.html` once the application is started.
+
+## 📖 Architecture
+Detailed architecture can be found in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)
