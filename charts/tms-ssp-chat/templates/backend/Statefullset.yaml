@@ -1,0 +1,120 @@
+{{ $checksumSecret := include (print $.Template.BasePath "/backend/Secret.yaml") . | sha256sum }}
+{{ $checksumConfigMap := include (print $.Template.BasePath "/backend/ConfigMap.yaml") . | sha256sum }}
+
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: {{ $.Values.product }}
+  labels:
+    app: {{ $.Values.product }}
+spec:
+  replicas: {{ $.Values.backend.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: {{ $.Values.product }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: {{ $.Values.product }}
+      annotations:
+        collectord.io/logs-output: splunk::prod
+        collectord.io/logs-index: {{ $.Values.splunkIndex }}
+        collectord.io/logs-eventpattern: '^\d{4}\-'
+        collectord.io/logs-extraction: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z? +(?P<log_level>\w+) \d+ --- (\[ *(?P<thread>\S+)\] \[.+\] (?P<logger>\S+) +: (?:.+|\n)+)$'
+        checksum/secret: {{ $checksumSecret }}
+        checksum/configMap: {{ $checksumConfigMap }}
+    spec:
+      containers:
+        - name: {{ $.Values.product }}
+          image: "docker.bin.sbb.ch/tms/tms-ssp-chat:{{ ternary $.Values.continuousVersion $.Chart.Version (eq .Values.useContinuousVersion true) }}"
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          env:
+            - name: HTTP_PORT
+              value: '8495'
+            - name: OAUTH_SERVICE_NAME
+              value: {{ $.Values.oauthServiceName }}
+            - name: OAUTH_CLIENT_ID
+              value: {{ $.Values.oauthClientId }}
+            - name: LOG_LEVEL_ROOT
+              value: {{ $.Values.logLevelRoot }}
+            - name: LOG_LEVEL
+              value: {{ $.Values.logLevel }}
+            - name: TMS_SSP_SOLACE_BACKEND_URL
+              value: {{ $.Values.externalUrls.solaceBackendApi }}
+            - name: TMS_STAGE
+              value: {{ $.Values.backend.tmsStage }}
+            - name: EXPORT_DIR
+              value: /data_export
+            - name: TZ
+              value: UTC
+            - name: DB_SCHEMA
+              value: rag  # hardcoded value, as the application only uses one schema and not the main schema
+          envFrom:
+            - secretRef:
+                name: {{ $.Values.product }}
+            - secretRef:
+                name: {{ $.Values.product }}-app-context-backend
+            - secretRef:
+                name: {{ $.Values.product }}-db
+            - configMapRef:
+                name: {{ $.Values.product }}-solace-certificates
+          ports:
+            - containerPort: 8495
+              protocol: TCP
+          resources:
+            requests:
+              cpu: {{ $.Values.backend.cpuMin }}
+              memory: {{ $.Values.backend.memoryMax }}
+            limits:
+              cpu: {{ $.Values.backend.cpuMax }}
+              memory: {{ $.Values.backend.memoryMax }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8495
+              scheme: HTTP
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8495
+              scheme: HTTP
+            timeoutSeconds: 7
+            periodSeconds: 20
+            failureThreshold: 25
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8495
+              scheme: HTTP
+            timeoutSeconds: 7
+            periodSeconds: 20
+            failureThreshold: 3
+            successThreshold: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /data_export
+              name: export-volume
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Delete
+  volumeClaimTemplates:
+    - metadata:
+        name: export-volume
+      spec:
+        volumeMode: Filesystem
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ $.Values.backend.storageSize }}
+        storageClassName: sbb-gp3

@@ -7,3 +7,4 @@ CREATE TABLE IF NOT EXISTS embeddings
     text TEXT,
     metadata JSONB
 );
+CREATE INDEX ON embeddings USING hnsw (embedding vector_cosine_ops);

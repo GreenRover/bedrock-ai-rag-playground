@@ -1,0 +1,23 @@
+solace:
+  java:
+    host: ${SOLACE_HOSTS:tcps://tms-ssp-p.messaging.solace.cloud:55443}
+    msgVpn: ${SOLACE_MSG_VPN:TmsPlatformTmsssp}
+    clientName: tms-ssp-chat_${HOSTNAME}_${random.uuid}
+    connectRetries: 5
+    reconnectRetries: 50
+    connectRetriesPerHost: 2
+    reconnectRetryWaitInMillis: 3000
+    apiProperties:
+      CLIENT_CHANNEL_PROPERTIES:
+        ConnectTimeoutInMillis: 3000
+      AUTHENTICATION_SCHEME: AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE
+      SSL_CLIENT_CERT: ${SOLACE_CLIENT_CERT}
+      SSL_PRIVATE_KEY: ${SOLACE_PRIVATE_KEY} # needs to be a pem in pkcs8 form, without encryption
+      SSL_TRUST_CERT: ${SOLACE_TRUST_ROOTS:}
+
+spring:
+  leader:
+    permit-anonymous-groups: false
+    join-groups:
+      - groupName: tms-ssp-chat-${TMS_STAGE:d}
+        joinType: ON_READINESS

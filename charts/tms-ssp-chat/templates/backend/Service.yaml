@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ $.Values.product }}
+spec:
+  ports:
+    - name: 8495-tcp
+      port: 8495
+      protocol: TCP
+      targetPort: 8495
+  selector:
+    app: {{ $.Values.product }}
+  sessionAffinity: None
+  type: ClusterIP

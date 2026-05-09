@@ -1,0 +1,41 @@
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: {{ $.Values.product }}
+  annotations:
+    router.openshift.io/cookie-same-site: Strict
+    haproxy.router.openshift.io/timeout: 30m
+spec:
+  host: chat-{{ $.Values.stage }}.{{ $.Values.clusterurl }}
+  path: /
+  port:
+    targetPort: 8495-tcp
+  to:
+    kind: Service
+    name: {{ $.Values.product }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: None
+
+
+---
+
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: {{ $.Values.product }}-cluster-independent
+  annotations:
+    router.openshift.io/cookie-same-site: Strict
+    haproxy.router.openshift.io/timeout: 30m
+    clew.sbb.ch/cluster-independent-dns: 'true'
+spec:
+  host: {{ $.Values.backend.url }}
+  path: /
+  port:
+    targetPort: 8495-tcp
+  to:
+    kind: Service
+    name: {{ $.Values.product }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: None

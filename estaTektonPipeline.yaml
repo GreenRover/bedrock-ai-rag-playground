@@ -1,0 +1,101 @@
+$schema: 'https://clew-resources.sbb-cloud.net/tekton-schema.json'
+productName: selfservice-portal-chat
+builder:
+  java: '21'
+  maven: '3.9'
+mvn:
+  parentPom: pom.xml
+  deployableArtifactsPom: pom.xml
+  artifactoryMavenRepo: tms.mvn
+docker:
+  artifactoryDockerRepo: tms.docker
+  dockerFile: ./docker/Dockerfile
+  imageName: tms-ssp-chat
+helm:
+  chartFilePath: ./charts/tms-ssp-chat/Chart.yaml
+pipelines:
+  - name: continuous
+    triggerType:
+      - GITEVENT
+      - USER
+    branchNamePrefixes:
+      - master
+    envSecret: pipeline-env-docker
+    build:
+      versionTag: 'rev-${GIT_REV_SHORT}'
+      additionalBuildParams: ''
+      deployArtifacts: true
+      buildDockerImage: true
+      sonarScan:
+        enabled: false
+    tasks:
+      - name: lint
+        taskRef: esta-custom-exec
+        params:
+          SCRIPT: set +e; ./validate.sh --kubelint --kubeconform
+          RUN_IMAGE: >-
+            esta.docker.bin.sbb.ch/esta/esta-tekton-pipeline-helm-builderimage:1.12.2
+        runAfter: git-clone
+    stages:
+      - continuous-int
+  - name: trigger-on-tag
+    branchNamePrefixes: []
+    triggerType:
+      - GITEVENT
+    versionTagEventPatterns:
+      - ^(\d+\.)?(\d+\.)?(\*|\d+)$
+    envSecret: pipeline-env-docker
+    build:
+      additionalBuildParams: ''
+      deployArtifacts: true
+      buildDockerImage: true
+      sonarScan:
+        enabled: false
+    stages: []
+  - name: private-feature-hotfix-renovate
+    triggerType:
+      - GITEVENT
+      - USER
+    branchNamePrefixes:
+      - private
+      - feature
+      - hotfix
+      - renovate
+    envSecret: pipeline-env-docker
+    build:
+      versionTag: 'rev-${GIT_REV_SHORT}'
+      additionalBuildParams: ''
+      deployArtifacts: false
+      buildDockerImage: true
+      sonarScan:
+        enabled: false
+    tasks:
+      - name: lint
+        taskRef: esta-custom-exec
+        params:
+          SCRIPT: set +e; ./validate.sh --kubelint --kubeconform
+          RUN_IMAGE: >-
+            esta.docker.bin.sbb.ch/esta/esta-tekton-pipeline-helm-builderimage:1.12.2
+        runAfter: git-clone
+    stages: []
+notifications:
+  - type: EMAIL
+    eventTypes:
+      - FAILURE
+    recipients:
+      - $actor
+stages:
+  - stageName: continuous-int
+    helm:
+      sourceRepository: >-
+        https://code.sbb.ch/scm/tp_tms_plattform/selfservice-portal-argocd-app-of-apps.git
+      chartFilePath: clusters/trs01t/applications/values.yaml
+      versionProperties:
+        - .latestContinuousHash.chat
+  - stageName: branch-int
+    helm:
+      sourceRepository: >-
+        https://code.sbb.ch/scm/tp_tms_plattform/selfservice-portal-argocd-app-of-apps.git
+      chartFilePath: clusters/trs01t/applications/values.yaml
+      versionProperties:
+        - .lastPushedBranchHash.chat

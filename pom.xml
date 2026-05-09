@@ -10,8 +10,8 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
-    <groupId>ch.sbb.greenrover</groupId>
-    <artifactId>bedrock-ai-rag-langchain4j</artifactId>
+    <groupId>ch.sbb.tms.ssp</groupId>
+    <artifactId>tms-ssp-chat</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 
     <properties>
@@ -26,6 +26,13 @@
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j-bom</artifactId>
                 <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>ch.sbb.tms</groupId>
+                <artifactId>sttrs-dependencies</artifactId>
+                <version>2025.12.2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -94,7 +101,10 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>${springdoc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
         </dependency>
 
         <!-- Scraper dependencies -->
@@ -148,6 +158,36 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
             <version>3.2.5</version>
+        </dependency>
+
+        <!-- Tools: solace-backend -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-security-oauth2-client</artifactId>
+        </dependency>
+
+        <!-- Metrics -->
+        <dependency>
+            <groupId>community.solace.spring.boot</groupId>
+            <artifactId>spring-boot-starter-solace-client-config</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.sbb.micrometer.solacekpi</groupId>
+            <artifactId>monalesy-meter-solace-kpi-exporter</artifactId>
+        </dependency>
+
+        <!-- security -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
         </dependency>
 
         <!-- Test dependencies -->

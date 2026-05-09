@@ -1,0 +1,34 @@
+# Url part of the cluster
+clusterurl: apps.trs01t.sbb-aws-test.net
+# The image pull policy
+imagePullPolicy: Always
+# product
+product: tms-ssp-chat
+# splunk_index
+splunkIndex: sbb_tms-ssp_internal_prod_events
+# stage
+stage: tms-ssp-int
+
+vaultStageSuffix: int
+
+logLevel: INFO
+logLevelRoot: INFO
+
+backend:
+  cpuMin: 100m
+  cpuMax: 500m
+  memoryMax: 2G
+  # number of replicas of backend
+  replicas: 1
+  tmsStage: i
+  storageSize: 50Gi
+
+mail:
+  senderAccount: sttrs@sbb.ch
+
+externalUrls:
+  solaceBackendApi: http://tms-ssp-solace-backend:8487
+
+oauthClientId: f010b73b-fa8d-4e5b-96cf-692509dd08d9
+oauthAppId: cf67f18c-947e-47f0-9d44-b278e43ecf48
+

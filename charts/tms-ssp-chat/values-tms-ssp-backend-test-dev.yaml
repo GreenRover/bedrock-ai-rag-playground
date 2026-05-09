@@ -1,0 +1,9 @@
+# Url part of the cluster
+clusterurl: apps.trs01t.sbb-aws-test.net
+# stage
+stage: tms-ssp-int
+
+backend:
+  url: tms-ssp-int-chat.sbb-cloud.net
+
+logLevel: DEBUG

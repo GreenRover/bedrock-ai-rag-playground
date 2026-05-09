@@ -1,14 +1,52 @@
 spring:
-  config:
-    import: optional:file:.env[.properties]
+  profiles:
+    active: default
+    group:
+      default: version,solace
+      int: default,solace
+      prod: default,solace
+      local: default,local,solace
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}/${DB_NAME:tms-ssp}?currentSchema=${DB_SCHEMA:public}
     username: ${DB_USERNAME:tms-ssp}
     password: ${DB_PASSWORD:tms-ssp}
   application:
-    name: my-ai-spring-ai
+    name: tms-ssp-chat
   main:
     banner-mode: off
+
+  security:
+    oauth2:
+      client:
+        registration:
+          solace-backend:
+            client-id: ${OAUTH2_APP_CONTEXT_CLIENT_ID}
+            client-secret: ${OAUTH2_APP_CONTEXT_CLIENT_SECRET}
+            authorization-grant-type: client_credentials
+            scope:
+              - ${OAUTH2_APP_CONTEXT_SCOPE}
+        provider:
+          solace-backend:
+            token-uri: https://login.microsoftonline.com/2cda5d11-f0ac-46b3-967d-af1b2e1bd01a/oauth2/v2.0/token
+    resourceserver:
+      jwt:
+        issuer:
+          - uri: https://login.microsoftonline.com/2cda5d11-f0ac-46b3-967d-af1b2e1bd01a/v2.0
+            type: AZUREAD
+            identifier: ${OAUTH_APP_ID:cf67f18c-947e-47f0-9d44-b278e43ecf48}
+auth:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer:
+          - uri: https://login.microsoftonline.com/2cda5d11-f0ac-46b3-967d-af1b2e1bd01a/v2.0
+            type: AZUREAD
+            identifier: ${OAUTH_APP_ID:cf67f18c-947e-47f0-9d44-b278e43ecf48}
+
+restapi:
+  solaceBackend:
+    uri: ${TMS_SSP_SOLACE_BACKEND_URL:http://localhost:8442}
 
 confluence:
   api:
@@ -39,7 +77,7 @@ aws:
 
 rag:
   data:
-    export-dir: data_export
+    export-dir: ${EXPORT_DIR:data_export}
   chat:
     model-id: "eu.amazon.nova-pro-v1:0"
     temperature: 0.1
@@ -70,3 +108,46 @@ bitbucket:
     - https://code.sbb.ch/projects/TP_TMS_MONALESY/repos/monalesy-service-state-provider/browse
     - https://code.sbb.ch/projects/TP_TMS_MONALESY/repos/monalesy-openshift-monitoring-proxy/browse
     - https://code.sbb.ch/projects/TP_TMS_MONALESY/repos/monalesy-servicedescription-servicestate-operator/browse
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "prometheus,health,info"
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+  metrics:
+    export:
+      solacekpi:
+        abb1: tms
+        abb2: plattform
+        abb3: tms-ssp
+        stage: ${TMS_STAGE:d}
+        monalesy-stage: p
+        groups:
+          - keyframeInterval: PT15M
+            incrementalSendInterval: PT30S
+            groupName: chat
+            metricInclusionsRegex:
+              - .*
+server:
+  port: ${HTTP_PORT:8495}
+
+logging:
+  level:
+    dev:
+      langchain4j: ${LOG_LEVEL:INFO}
+    ch:
+      sbb: ${LOG_LEVEL:INFO}
+      sbb.micrometer: ${KPI_LOG_LEVEL:INFO}
+    org:
+      springframework:
+        web: ${LOG_LEVEL:INFO}
+        http:
+          client: ${LOG_LEVEL:INFO}
+    com:
+      solacesystems:
+        jcsmp: ${SOLACE_LOG_LEVEL:WARN}
+    root: ${LOG_LEVEL_ROOT:INFO}
