@@ -19,6 +19,8 @@ confluence:
   - 1262683220 # sttrs messaging
   - 1257836039 # TRS Monitoring Alerting
   - 1769768106 # Architecture+Governance
+  - 1916372937 # esta tekton pipeline
+  - 3206067402 # aitg api provider
   token: ${CONFLUENCE_TOKEN}
 
 github:

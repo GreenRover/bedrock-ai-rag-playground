@@ -3,6 +3,7 @@ package ch.sbb.greenrover.rag.config;
 import ch.sbb.greenrover.rag.service.Assistant;
 import ch.sbb.greenrover.rag.service.BedrockAmazonScoringModel;
 import ch.sbb.greenrover.rag.service.PostgresHybridRetriever;
+import ch.sbb.greenrover.rag.service.tools.SolaceBrokerTools;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
@@ -144,7 +145,13 @@ public class RagConfiguration {
     }
 
     @Bean
-    Assistant assistant(ChatModel chatModel, ContentRetriever contentRetriever, QueryTransformer translationQueryTransformer, ContentAggregator contentAggregator) {
+    Assistant assistant(
+            ChatModel chatModel,
+            ContentRetriever contentRetriever,
+            QueryTransformer translationQueryTransformer,
+            ContentAggregator contentAggregator,
+            SolaceBrokerTools solaceBrokerTools
+    ) {
         DefaultContentInjector contentInjector = DefaultContentInjector.builder()
                 .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links", "parent_context", "last_updated"))
                 .build();
@@ -159,6 +166,7 @@ public class RagConfiguration {
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .retrievalAugmentor(augmentor)
+                .tools(solaceBrokerTools)
                 .build();
     }
 }
