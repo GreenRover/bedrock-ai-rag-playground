@@ -48,18 +48,41 @@ restapi:
   solaceBackend:
     uri: ${TMS_SSP_SOLACE_BACKEND_URL:http://localhost:8442}
 
+aws:
+  bedrock:
+    token: ${AWS_BEARER_TOKEN_BEDROCK}
+
+rag:
+  data:
+    export-dir: ${EXPORT_DIR:data_export}
+    transation:
+      model-id: "eu.amazon.nova-pro-v1:0"
+      temperature: 0.1
+  rerank:
+    model-id: "amazon.rerank-v1:0"
+    min-score: 0.3 # Avoid poisoning the chat context with irrelevant results. Possible values 0-1
+    max-results: 10 # Use only best results from rag, Don't overload chat context
+
+  chat:
+    model-id: "eu.amazon.nova-pro-v1:0"
+    temperature: 0.1
+    max-output-tokens: 1000
+    translation:
+      model-id: "eu.amazon.nova-lite-v1:0"
+      temperature: 0.0
+
 confluence:
   api:
     url: ${confluence.base-url}
     token: ${confluence.token}
   base-url: https://confluence.sbb.ch
+  token: ${CONFLUENCE_TOKEN}
   start-page-id:
   - 1262683220 # sttrs messaging
   - 1257836039 # TRS Monitoring Alerting
   - 1769768106 # Architecture+Governance
   - 1916372937 # esta tekton pipeline
   - 3206067402 # aitg api provider
-  token: ${CONFLUENCE_TOKEN}
 
 github:
   token: ${GITHUB_TOKEN}
@@ -70,22 +93,6 @@ github:
     - https://github.com/solacecommunity/spring-cloud-stream-request-reply
     - https://github.com/solacecommunity/spring-solace-leader-election
     - https://github.com/solacecommunity/angular-solace-message-client
-
-aws:
-  bedrock:
-    token: ${AWS_BEARER_TOKEN_BEDROCK}
-
-rag:
-  data:
-    export-dir: ${EXPORT_DIR:data_export}
-  chat:
-    model-id: "eu.amazon.nova-pro-v1:0"
-    temperature: 0.1
-    max-output-tokens: 1000
-  retriever:
-    max-results: 100
-    min-score: 0.65
-    max-context-length: 40000
 
 bitbucket:
   token: ${BITBUCKET_TOKEN}

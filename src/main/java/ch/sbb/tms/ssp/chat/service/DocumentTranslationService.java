@@ -9,6 +9,7 @@ import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
 import dev.langchain4j.model.chat.ChatModel;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
@@ -25,13 +26,19 @@ public class DocumentTranslationService {
     private final ChatModel translatorModel;
     private final LanguageDetector languageDetector;
 
+    @Value("${rag.data.transation.model-id}")
+    String modelId;
+
+    @Value("${rag.data.transation.temperature}")
+    Double temperature;
+
     public DocumentTranslationService(BedrockRuntimeClient bedrockRuntimeClient) {
         this.languageDetector = LanguageDetectorBuilder.fromLanguages(Language.ENGLISH, Language.GERMAN, Language.FRENCH, Language.ITALIAN).build();
         this.translatorModel = BedrockChatModel.builder()
                 .client(bedrockRuntimeClient)
-                .modelId("eu.amazon.nova-pro-v1:0")
+                .modelId(modelId)
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(0.1)
+                        .temperature(temperature)
                         .build())
                 .build();
     }

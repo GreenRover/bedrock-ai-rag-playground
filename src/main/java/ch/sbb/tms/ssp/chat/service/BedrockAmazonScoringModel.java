@@ -8,6 +8,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.scoring.ScoringModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -28,6 +29,9 @@ public class BedrockAmazonScoringModel implements ScoringModel {
     private final BedrockRuntimeClient bedrockRuntimeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Value("${rag.rerank.model-id}")
+    String modelId;
+
     @Override
     public Response<List<Double>> scoreAll(List<TextSegment> segments, String query) {
         try {
@@ -40,7 +44,7 @@ public class BedrockAmazonScoringModel implements ScoringModel {
             }
 
             InvokeModelRequest request = InvokeModelRequest.builder()
-                    .modelId("amazon.rerank-v1:0")
+                    .modelId(modelId)
                     .contentType("application/json")
                     .accept("application/json")
                     .body(SdkBytes.fromString(payload.toString(), StandardCharsets.UTF_8))

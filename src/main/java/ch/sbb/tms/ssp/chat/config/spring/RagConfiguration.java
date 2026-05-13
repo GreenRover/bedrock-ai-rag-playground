@@ -16,7 +16,6 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.rag.DefaultRetrievalAugmentor;
 import dev.langchain4j.rag.content.aggregator.ContentAggregator;
-import dev.langchain4j.rag.content.aggregator.ReRankingContentAggregator;
 import dev.langchain4j.rag.content.injector.DefaultContentInjector;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.query.Query;
@@ -115,21 +114,29 @@ public class RagConfiguration {
     }
 
     @Bean
-    ContentAggregator contentAggregator(BedrockAmazonScoringModel scoringModel) {
+    ContentAggregator contentAggregator(
+            BedrockAmazonScoringModel scoringModel,
+            @Value("${rag.rerank.min-score}") Double minScore,
+            @Value("${rag.rerank.max-results}") Integer maxResults
+            ) {
         return LoggingReRankingContentAggregator.builder()
                 .scoringModel(scoringModel)
-                .minScore(0.3)
-                .maxResults(10)
+                .minScore(minScore)
+                .maxResults(maxResults)
                 .build();
     }
 
     @Bean
-    ChatModel translationChatModel(BedrockRuntimeClient client) {
+    ChatModel translationChatModel(
+            BedrockRuntimeClient client,
+            @Value("${rag.chat.translation.model-id}") String modelId,
+            @Value("${rag.chat.translation.temperature}") Double temperature
+    ) {
         return BedrockChatModel.builder()
                 .client(client)
-                .modelId("eu.amazon.nova-lite-v1:0")
+                .modelId(modelId)
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(0.0)
+                        .temperature(temperature)
                         .build())
                 .build();
     }
