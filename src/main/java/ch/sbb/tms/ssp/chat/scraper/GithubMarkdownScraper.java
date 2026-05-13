@@ -1,7 +1,6 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.GithubProperties;
-import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
 import com.vladsch.flexmark.ast.Image;
 import com.vladsch.flexmark.parser.Parser;
@@ -11,6 +10,7 @@ import com.vladsch.flexmark.util.ast.VisitHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.kohsuke.github.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
@@ -24,7 +24,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
@@ -37,18 +37,23 @@ public class GithubMarkdownScraper implements DocumentScraper {
     private static final String ADOC_EXTENSION = ".adoc";
     private static final String FRONTMATTER_DASHES = "---\n";
 
-    private final BedrockMediaTranslationService bedrockMediaTranslationService;
-    private final GithubProperties githubProperties;
-
-    @org.springframework.beans.factory.annotation.Value("${rag.data.export-dir:data_export}")
-    private String exportDirString;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private final GitHub gitHub;
     private final RestClient githubRestClient;
     private final RetryTemplate githubRetryTemplate;
+    private final GithubProperties githubProperties;
+
+    @Value("${rag.data.export-dir:data_export}")
+    private String exportDirString;
 
     @Override
     public void scrape() {
+        if (!isRunning.compareAndSet(false, true)) {
+            log.warn("Scrape is already running for {}, skipping...", this.getClass().getSimpleName());
+            return;
+        }
+
         try {
             List<String> repositoryUrls = githubProperties.getRepositories();
             String githubToken = githubProperties.getToken();
@@ -78,30 +83,12 @@ public class GithubMarkdownScraper implements DocumentScraper {
                     log.debug("Detailed error scraping repository:", e);
                 }
             }
-            translateImages(exportDir);
+            log.info("Scraping completed for {}.", this.getClass().getSimpleName());
         } catch (Exception e) {
             log.error("Failed to execute GitHub scraping: {}", e.getMessage());
             log.debug("Detailed error in scrape():", e);
-        }
-    }
-
-    private void translateImages(Path exportDir) throws IOException {
-        Path assetsDir = exportDir.resolve(ASSETS_DIR);
-        if (!Files.exists(assetsDir)) return;
-
-        log.info("Translating GitHub images...");
-        try (Stream<Path> paths = Files.walk(assetsDir)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> !p.toString().endsWith(MD_EXTENSION))
-                    .filter(p -> p.getParent().getFileName().toString().startsWith(GH_PREFIX))
-                    .forEach(assetPath -> {
-                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + MD_EXTENSION);
-                        if (!Files.exists(textFile)) {
-                            bedrockMediaTranslationService.extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
-                        } else {
-                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
-                        }
-                    });
+        } finally {
+            isRunning.set(false);
         }
     }
 
@@ -109,12 +96,12 @@ public class GithubMarkdownScraper implements DocumentScraper {
         if (path == null) return false;
         String lowerPath = path.toLowerCase();
         return lowerPath.endsWith("code_of_conduct.md") ||
-               lowerPath.endsWith("contributing.md") ||
-               lowerPath.endsWith("agent.md") ||
-               lowerPath.endsWith("changelog.md") ||
-               lowerPath.contains("/.agents/") ||
-               lowerPath.startsWith(".agents/") ||
-               lowerPath.startsWith(".github/");
+                lowerPath.endsWith("contributing.md") ||
+                lowerPath.endsWith("agent.md") ||
+                lowerPath.endsWith("changelog.md") ||
+                lowerPath.contains("/.agents/") ||
+                lowerPath.startsWith(".agents/") ||
+                lowerPath.startsWith(".github/");
     }
 
     private void scrapeRepository(String url, Path exportDir) throws IOException {
@@ -171,8 +158,10 @@ public class GithubMarkdownScraper implements DocumentScraper {
         log.info("Saved to: {}", targetFile);
     }
 
-    private record ImageReplacement(int startOffset, int endOffset, String safeName) {}
+    private record ImageReplacement(int startOffset, int endOffset, String safeName) {
+    }
 
+    @SuppressWarnings("DuplicatedCode")
     private String processImagesAndReplace(GHRepository repository, String mdPath, String content, String repoFullName, Path exportDir) {
         String repoSafeName = GH_PREFIX + repoFullName.replace("/", "-");
         Path assetsDir = exportDir.resolve(ASSETS_DIR).resolve(repoSafeName);
@@ -209,6 +198,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
         return sb.toString();
     }
 
+    @SuppressWarnings("HttpUrlsUsage")
     private String processImage(GHRepository repository, String mdPath, String url, Path assetsDir) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
             return githubRetryTemplate.execute(context -> {
@@ -230,37 +220,36 @@ public class GithubMarkdownScraper implements DocumentScraper {
         }
     }
 
+    @SuppressWarnings("DuplicatedCode")
     private String resolveRelativePath(String mdPath, String imgPath) {
         if (imgPath.startsWith("/")) {
             return imgPath.substring(1);
         }
 
-        String parent = "";
+        StringBuilder parent = new StringBuilder();
         int lastSlash = mdPath.lastIndexOf('/');
         if (lastSlash != -1) {
-            parent = mdPath.substring(0, lastSlash);
+            parent = new StringBuilder(mdPath.substring(0, lastSlash));
         }
 
         String[] parts = imgPath.split("/");
         for (String part : parts) {
-            if (part.equals(".")) {
-                continue;
-            } else if (part.equals("..")) {
-                int lastParentSlash = parent.lastIndexOf('/');
+            if (part.equals("..")) {
+                int lastParentSlash = parent.toString().lastIndexOf('/');
                 if (lastParentSlash != -1) {
-                    parent = parent.substring(0, lastParentSlash);
+                    parent = new StringBuilder(parent.substring(0, lastParentSlash));
                 } else {
-                    parent = "";
+                    parent = new StringBuilder();
                 }
-            } else {
+            } else if (!part.equals(".")) {
                 if (parent.isEmpty()) {
-                    parent = part;
+                    parent = new StringBuilder(part);
                 } else {
-                    parent = parent + "/" + part;
+                    parent.append("/").append(part);
                 }
             }
         }
-        return parent;
+        return parent.toString();
     }
 
     private String downloadGitHubImage(GHRepository repository, String path, Path assetsDir) throws IOException {
@@ -280,6 +269,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
         return safeName;
     }
 
+    @SuppressWarnings("DuplicatedCode")
     private String downloadExternalImage(String url, Path assetsDir) throws IOException {
         String filename = url.substring(url.lastIndexOf('/') + 1);
         if (filename.contains("?")) {

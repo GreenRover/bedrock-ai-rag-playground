@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import static ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService.ATTACHMENT_PREFIX;
@@ -29,6 +30,8 @@ public class DocumentBuilderService {
     private final DocumentIngestor documentIngestor;
     private final JdbcTemplate jdbcTemplate;
 
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
     @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
 
@@ -42,39 +45,48 @@ public class DocumentBuilderService {
     }
 
     public void rebuildRag() throws IOException {
-        log.info("\nRebuilding RAG and ingesting into PostgresDB ...");
+        if (!isRunning.compareAndSet(false, true)) {
+            log.warn("RebuildRag is already running for {}, skipping...", this.getClass().getSimpleName());
+            return;
+        }
 
-        log.info("Truncating existing embeddings table...");
-        jdbcTemplate.execute("TRUNCATE TABLE embeddings");
+        try {
+            log.info("\nRebuilding RAG and ingesting into PostgresDB ...");
 
-        try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
+            log.info("Truncating existing embeddings table...");
+            jdbcTemplate.execute("TRUNCATE TABLE " + PostgresHybridRetriever.TABLE_NAME);
 
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> p.getParent().equals(EXPORT_DIR))
-                    .filter(p -> p.toString().endsWith(".md"))
-                    .filter(p -> !p.getFileName().toString().startsWith("00_index"))
-                    .parallel()
-                    .forEach(txtPath -> {
-                        try {
-                            String content = Files.readString(txtPath, StandardCharsets.UTF_8);
-                            content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
+            try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
 
-                            Path cachePath = Path.of(txtPath + ENGLISH_CACHE_FILE_SUFFIX);
-                            if (Files.exists(cachePath) && Files.getLastModifiedTime(cachePath).compareTo(Files.getLastModifiedTime(txtPath)) > 0) {
-                                log.debug("Cache hit for {}", txtPath.getFileName().toString());
-                                content = Files.readString(cachePath, StandardCharsets.UTF_8);
-                            } else {
-                                content = documentTranslationService.ensureEnglish(txtPath.getFileName().toString(), content);
-                                Files.writeString(cachePath, content, StandardCharsets.UTF_8);
+                paths.filter(Files::isRegularFile)
+                        .filter(p -> p.getParent().equals(EXPORT_DIR))
+                        .filter(p -> p.toString().endsWith(".md"))
+                        .filter(p -> !p.getFileName().toString().startsWith("00_index"))
+                        .parallel()
+                        .forEach(txtPath -> {
+                            try {
+                                String content = Files.readString(txtPath, StandardCharsets.UTF_8);
+                                content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
+
+                                Path cachePath = Path.of(txtPath + ENGLISH_CACHE_FILE_SUFFIX);
+                                if (Files.exists(cachePath) && Files.getLastModifiedTime(cachePath).compareTo(Files.getLastModifiedTime(txtPath)) > 0) {
+                                    log.debug("Cache hit for {}", txtPath.getFileName().toString());
+                                    content = Files.readString(cachePath, StandardCharsets.UTF_8);
+                                } else {
+                                    content = documentTranslationService.ensureEnglish(txtPath.getFileName().toString(), content);
+                                    Files.writeString(cachePath, content, StandardCharsets.UTF_8);
+                                }
+
+                                documentIngestor.ingestDocument(txtPath.getFileName().toString(), content);
+                            } catch (IOException e) {
+                                log.error("Error reading file: {}", txtPath, e);
                             }
+                        });
 
-                            documentIngestor.ingestDocument(txtPath.getFileName().toString(), content);
-                        } catch (IOException e) {
-                            log.error("Error reading file: {}", txtPath, e);
-                        }
-                    });
-
-            log.info("Done! Corpus was ingested directly into the PostgresDB.");
+                log.info("Done! Corpus was ingested directly into the PostgresDB.");
+            }
+        } finally {
+            isRunning.set(false);
         }
     }
 

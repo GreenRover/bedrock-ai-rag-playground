@@ -1,23 +1,26 @@
 package ch.sbb.tms.ssp.chat.service;
 
-import dev.langchain4j.data.message.ImageContent;
-import dev.langchain4j.data.message.PdfFileContent;
-import dev.langchain4j.data.message.TextContent;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.data.message.VideoContent;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tika.Tika;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
-import org.apache.tika.Tika;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -26,8 +29,63 @@ public class BedrockMediaTranslationService {
 
     private final ChatModel chatModel;
     private final Tika tika = new Tika();
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
-    public void extractTextWithBedrock(Path targetFile, String title, Path pageAssetsDir) {
+    @Value("${rag.data.export-dir:data_export}")
+    private String exportDirString;
+
+    public void translateAllAssets() throws IOException {
+        if (!isRunning.compareAndSet(false, true)) {
+            log.warn("Asset translation is already running, skipping...");
+            return;
+        }
+
+        try {
+            Path exportDir = Path.of(exportDirString);
+
+            Path assetsDir = exportDir.resolve("assets");
+            if (!Files.exists(assetsDir)) return;
+
+            log.info("Starting global asset translation in: {}...", assetsDir);
+
+            List<Path> targetFiles;
+            try (Stream<Path> paths = Files.walk(assetsDir)) {
+                targetFiles = paths.filter(Files::isRegularFile)
+                        .filter(p -> !p.toString().endsWith(".md")) // Skip already generated MD files
+                        .toList();
+            }
+
+            int total = targetFiles.size();
+            AtomicInteger processed = new AtomicInteger(0);
+            AtomicLong lastPrintTime = new AtomicLong(System.currentTimeMillis());
+
+            targetFiles.stream()
+                    .parallel() // Process with Bedrock in parallel
+                    .forEach(assetPath -> {
+                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
+                        if (!Files.exists(textFile)) {
+                            extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
+                        } else {
+                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
+                        }
+
+                        synchronized (lastPrintTime) {
+                            int current = processed.incrementAndGet();
+                            long now = System.currentTimeMillis();
+                            long lastTime = lastPrintTime.get();
+                            if (now - lastTime > 60000 && lastPrintTime.compareAndSet(lastTime, now)) {
+                                log.info("Asset translation progress: {}/{} completed", current, total);
+                            }
+                        }
+                    });
+
+            log.info("Global asset translation completed.");
+        } finally {
+            isRunning.set(false);
+        }
+    }
+
+    private void extractTextWithBedrock(Path targetFile, String title, Path pageAssetsDir) {
         try {
             String mimeType = tika.detect(targetFile);
 
@@ -66,7 +124,7 @@ public class BedrockMediaTranslationService {
         // Only pdf and images are supported: dev.langchain4j.model.bedrock.AbstractBedrockChatModel.convertContent
         if (mimeType.startsWith("image/")) {
             if (!mimeType.equals("image/png") && !mimeType.equals("image/jpeg") &&
-                !mimeType.equals("image/gif") && !mimeType.equals("image/webp")) {
+                    !mimeType.equals("image/gif") && !mimeType.equals("image/webp")) {
                 log.debug("Skipping unsupported image format {} for file {}", mimeType, title);
                 return true;
             }

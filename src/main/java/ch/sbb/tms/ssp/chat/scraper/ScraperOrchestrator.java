@@ -1,5 +1,6 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
+import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ public class ScraperOrchestrator {
     @Lazy
     private final List<DocumentScraper> scrapers;
     private final DocumentBuilderService corpusBuilderService;
+    private final BedrockMediaTranslationService mediaTranslationService;
 
     // Run once a week on Sunday at midnight
     @Scheduled(cron = "0 0 5 * * SUN")
@@ -29,6 +31,13 @@ public class ScraperOrchestrator {
             } catch (Exception e) {
                 log.error("Error running scraper: {}", scraper.getClass().getSimpleName(), e);
             }
+        }
+
+        try {
+            log.info("Running global asset translation...");
+            mediaTranslationService.translateAllAssets();
+        } catch (Exception e) {
+            log.error("Error during asset translation", e);
         }
 
         try {

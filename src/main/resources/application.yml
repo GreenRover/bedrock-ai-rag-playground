@@ -83,6 +83,8 @@ confluence:
   - 1769768106 # Architecture+Governance
   - 1916372937 # esta tekton pipeline
   - 3206067402 # aitg api provider
+  - 3040744799 # DevRel - Was tun wir
+  - 2787083083 # IAM - oAuth techical realisation
 
 github:
   token: ${GITHUB_TOKEN}
@@ -158,3 +160,22 @@ logging:
       solacesystems:
         jcsmp: ${SOLACE_LOG_LEVEL:WARN}
     root: ${LOG_LEVEL_ROOT:INFO}
+
+springdoc:
+  version: '@springdoc.version@'
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /v3/api-docs
+    docExpansion: none
+    deepLinking: true
+    oauth:
+      clientId: ${OAUTH_CLIENT_ID:f010b73b-fa8d-4e5b-96cf-692509dd08d9}
+      usePkceWithAuthorizationCodeGrant: true
+      additionalQueryStringParams:
+        kc_idp_hint: azure_sbb_prod
+      scopes:
+        - cf67f18c-947e-47f0-9d44-b278e43ecf48/.default
+    oauth2RedirectUrl: ${BASE_URL:}/swagger-ui/oauth2-redirect.html
+  oAuthFlow:
+    issuer: https://login.microsoftonline.com/2cda5d11-f0ac-46b3-967d-af1b2e1bd01a/oauth2/v2.0
+  default-produces-media-type: application/json

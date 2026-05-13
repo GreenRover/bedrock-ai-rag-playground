@@ -3,6 +3,7 @@ package ch.sbb.tms.ssp.chat.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.document.Metadata;
+import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.rag.content.Content;
@@ -45,7 +46,7 @@ public class PostgresHybridRetriever implements ContentRetriever {
     @Override
     public List<Content> retrieve(Query query) {
         String queryText = query.text();
-        dev.langchain4j.data.embedding.Embedding queryEmbedding = embeddingModel.embed(queryText).content();
+        Embedding queryEmbedding = embeddingModel.embed(queryText).content();
 
         String vectorStr = java.util.Arrays.toString(queryEmbedding.vector());
 
@@ -55,7 +56,7 @@ public class PostgresHybridRetriever implements ContentRetriever {
             WITH semantic_search AS (
                 SELECT embedding_id, text, metadata,
                        ROW_NUMBER() OVER (ORDER BY embedding OPERATOR(public.<=>) ?::public.vector) AS v_rank
-                FROM embeddings
+                FROM $table$
                 ORDER BY embedding OPERATOR(public.<=>) ?::public.vector
                 LIMIT 50
             ),
@@ -66,7 +67,7 @@ public class PostgresHybridRetriever implements ContentRetriever {
                            setweight(to_tsvector('english', text), 'B'),
                            websearch_to_tsquery('english', ?)
                        ) DESC) AS k_rank
-                FROM embeddings
+                FROM $table$
                 WHERE (setweight(to_tsvector('english', COALESCE((metadata::jsonb)->>'title_path', '')), 'A') ||
                        setweight(to_tsvector('english', text), 'B')) @@ websearch_to_tsquery('english', ?)
                 LIMIT 50

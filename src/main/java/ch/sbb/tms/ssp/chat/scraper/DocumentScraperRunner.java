@@ -1,15 +1,17 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.ChatApplication;
+import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.util.FileSystemUtils;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Objects;
@@ -27,6 +29,9 @@ public class DocumentScraperRunner implements ApplicationRunner {
     private final BitbucketMarkdownScraper bitbucketMarkdownScraper;
     @Lazy
     private final ConfluenceIncrementalScraper confluenceIncrementalScraper;
+    @Lazy
+    private final BedrockMediaTranslationService mediaTranslationService;
+
     private final DocumentBuilderService corpusBuilderService;
 
     @Value("${rag.data.export-dir:data_export}")
@@ -39,6 +44,7 @@ public class DocumentScraperRunner implements ApplicationRunner {
             boolean syncGithub = args.containsOption(ChatApplication.ARG_SYNC_GITHUB);
             boolean syncBitbucket = args.containsOption(ChatApplication.ARG_SYNC_BITBUCKET);
             boolean resync = args.containsOption(ChatApplication.ARG_SYNC_CONFLUENCE);
+            boolean translateImages = args.containsOption(ChatApplication.ARG_TRANSLATE_IMAGES);
             boolean rebuild = args.containsOption(ChatApplication.ARG_REBUILD_RAG);
             boolean eraseExportDir = args.containsOption(ChatApplication.ARG_ERASE_EXPORT_DIR);
 
@@ -80,6 +86,10 @@ public class DocumentScraperRunner implements ApplicationRunner {
                 if (resync) {
                     confluenceIncrementalScraper.scrape();
                 }
+                if (translateImages) {
+                    mediaTranslationService.translateAllAssets();
+                }
+
                 if (rebuild) {
                     corpusBuilderService.rebuildRag();
                 }

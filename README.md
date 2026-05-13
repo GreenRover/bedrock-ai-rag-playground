@@ -67,6 +67,7 @@ Alternatively, you can run specific scraper tasks by providing one or more of th
 - `--sync-github`: Syncs markdown files from configured GitHub repositories.
 - `--sync-bitbucket`: Syncs markdown files from configured Bitbucket repositories.
 - `--sync-confluence`: Syncs metadata and text content from Confluence.
+- `--translate-images`: Extract text from all images and PDFs.
 - `--rebuild-rag`: Rebuilds the rag / PostgreSQL db.
 - `--erase-export-dir`: Erases the local export directory before downloading everything again.
 
@@ -76,7 +77,7 @@ Since `./mvnw spring-boot:run` does not load `.env` files out of the box, you ca
 export $(grep -v '^#' .env | xargs)
 ./mvnw spring-boot:run -Dspring-boot.run.arguments="--scrape-all"
 # Or for specific tasks:
-# ./mvnw spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--rebuild-rag"
+# ./mvnw spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--translate-images,--rebuild-rag"
 ```
 
 ## API Documentation

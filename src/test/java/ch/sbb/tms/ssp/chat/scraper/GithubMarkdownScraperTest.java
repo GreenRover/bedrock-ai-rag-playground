@@ -27,7 +27,6 @@ class GithubMarkdownScraperTest {
     @TempDir
     Path tempDir;
 
-    private BedrockMediaTranslationService translationService;
     private GithubProperties githubProperties;
     private GitHub gitHub;
     private RestClient restClient;
@@ -36,14 +35,13 @@ class GithubMarkdownScraperTest {
 
     @BeforeEach
     void setUp() {
-        translationService = mock(BedrockMediaTranslationService.class);
         githubProperties = new GithubProperties();
         gitHub = mock(GitHub.class);
 
         restClient = mock(RestClient.class);
         retryTemplate = new RetryTemplate();
 
-        scraper = new GithubMarkdownScraper(translationService, githubProperties, gitHub, restClient, retryTemplate);
+        scraper = new GithubMarkdownScraper(gitHub, restClient, retryTemplate, githubProperties);
         ReflectionTestUtils.setField(scraper, "exportDirString", tempDir.toString());
     }
 

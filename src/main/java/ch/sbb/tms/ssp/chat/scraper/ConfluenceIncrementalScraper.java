@@ -1,7 +1,6 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.ConfluenceProperties;
-import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.ConfluenceClient;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
@@ -10,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -20,10 +20,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     private static final String CONFLUENCE_STORAGE_VERSION_EXPAND = "?expand=version";
@@ -32,7 +33,12 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
     private static final String CONFLUENCE_CHILD_ATTACHMENT_LIMIT_100 = "/child/attachment?limit=100";
     private static final String CONFLUENCE_API_CONTENT_PATH = "/rest/api/content/";
 
+    private final ObjectMapper objectMapper = JsonMapper.builder().build();
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    private final ConfluenceClient confluenceClient;
     private final ConfluenceProperties confluenceProperties;
+    private final ConfluenceToMarkdownService confluenceToMarkdownService;
 
     @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
@@ -41,24 +47,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
     private Path ASSETS_DIR;
     private Path STATE_FILE;
 
-    private final ObjectMapper objectMapper = JsonMapper.builder().build();
     private Map<String, Integer> syncState = new HashMap<>();
-
-    private final ConfluenceClient confluenceClient;
-
-    private final BedrockMediaTranslationService bedrockMediaTranslationService;
-
-    private final ConfluenceToMarkdownService confluenceToMarkdownService;
-
-    public ConfluenceIncrementalScraper(ConfluenceClient confluenceClient,
-                                       BedrockMediaTranslationService bedrockMediaTranslationService,
-                                       ConfluenceToMarkdownService confluenceToMarkdownService,
-                                       ConfluenceProperties confluenceProperties) {
-        this.confluenceClient = confluenceClient;
-        this.bedrockMediaTranslationService = bedrockMediaTranslationService;
-        this.confluenceToMarkdownService = confluenceToMarkdownService;
-        this.confluenceProperties = confluenceProperties;
-    }
 
     @PostConstruct
     public void init() {
@@ -69,9 +58,18 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     @Override
     public void scrape() throws Exception {
-        Files.createDirectories(EXPORT_DIR);
-        resyncConfluence();
-        translateImages();
+        if (!isRunning.compareAndSet(false, true)) {
+            log.warn("Scrape is already running for {}, skipping...", this.getClass().getSimpleName());
+            return;
+        }
+
+        try {
+            Files.createDirectories(EXPORT_DIR);
+            resyncConfluence();
+            log.info("Scraping completed for {}.", this.getClass().getSimpleName());
+        } finally {
+            isRunning.set(false);
+        }
     }
 
     private void resyncConfluence() throws Exception {
@@ -171,26 +169,6 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
                 confluenceClient.downloadAttachment(downloadUrl, targetFile);
                 log.info("Saved attachment to {}", targetFile);
             }
-        }
-    }
-
-    public void translateImages() throws IOException {
-        if (!Files.exists(ASSETS_DIR)) return;
-
-        log.info("\nTranslating images in: {}...", ASSETS_DIR.getFileName());
-
-        try (Stream<Path> paths = Files.walk(ASSETS_DIR)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> !p.toString().endsWith(".md"))
-                    .parallel()
-                    .forEach(assetPath -> {
-                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
-                        if (!Files.exists(textFile)) {
-                            bedrockMediaTranslationService.extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
-                        } else {
-                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
-                        }
-                    });
         }
     }
 

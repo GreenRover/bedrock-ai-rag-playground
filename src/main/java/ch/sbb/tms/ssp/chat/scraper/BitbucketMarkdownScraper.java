@@ -1,10 +1,7 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.BitbucketProperties;
-import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vladsch.flexmark.ast.Image;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
@@ -12,11 +9,14 @@ import com.vladsch.flexmark.util.ast.NodeVisitor;
 import com.vladsch.flexmark.util.ast.VisitHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +25,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
@@ -37,19 +37,24 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
     private static final String MD_EXTENSION = ".md";
     private static final String FRONTMATTER_DASHES = "---\n";
 
-    private final BedrockMediaTranslationService bedrockMediaTranslationService;
     private final BitbucketProperties bitbucketProperties;
 
-    @org.springframework.beans.factory.annotation.Value("${rag.data.export-dir:data_export}")
+    @Value("${rag.data.export-dir:data_export}")
     private String exportDirString;
 
-    @Qualifier("bitbucketRestClient")
     private final RestClient bitbucketRestClient;
     private final RetryTemplate retryTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builder().build();
+
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     @Override
     public void scrape() {
+        if (!isRunning.compareAndSet(false, true)) {
+            log.warn("Scrape is already running for {}, skipping...", this.getClass().getSimpleName());
+            return;
+        }
+
         try {
             List<String> repositoryUrls = bitbucketProperties.getRepositories();
             String token = bitbucketProperties.getToken();
@@ -78,29 +83,11 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
                     log.error("Error scraping repository {}: {}", url, e.getMessage());
                 }
             }
-            translateImages(exportDir);
+            log.info("Scraping completed for {}.", this.getClass().getSimpleName());
         } catch (Exception e) {
             log.error("Failed to execute Bitbucket scraping: {}", e.getMessage());
-        }
-    }
-
-    private void translateImages(Path exportDir) throws IOException {
-        Path assetsDir = exportDir.resolve(ASSETS_DIR);
-        if (!Files.exists(assetsDir)) return;
-
-        log.info("Translating Bitbucket images...");
-        try (Stream<Path> paths = Files.walk(assetsDir)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> !p.toString().endsWith(MD_EXTENSION))
-                    .filter(p -> p.getParent().getFileName().toString().startsWith(BB_PREFIX))
-                    .forEach(assetPath -> {
-                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + MD_EXTENSION);
-                        if (!Files.exists(textFile)) {
-                            bedrockMediaTranslationService.extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
-                        } else {
-                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
-                        }
-                    });
+        } finally {
+            isRunning.set(false);
         }
     }
 
@@ -108,11 +95,11 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         if (path == null) return false;
         String lowerPath = path.toLowerCase();
         return lowerPath.endsWith("code_of_conduct.md") ||
-               lowerPath.endsWith("contributing.md") ||
-               lowerPath.endsWith("agent.md") ||
-               lowerPath.endsWith("changelog.md") ||
-               lowerPath.contains("/.agents/") ||
-               lowerPath.startsWith(".agents/");
+                lowerPath.endsWith("contributing.md") ||
+                lowerPath.endsWith("agent.md") ||
+                lowerPath.endsWith("changelog.md") ||
+                lowerPath.contains("/.agents/") ||
+                lowerPath.startsWith(".agents/");
     }
 
     private void scrapeRepository(String url, Path exportDir) throws IOException {
@@ -139,7 +126,7 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
             JsonNode values = root.path("values");
             if (values.isArray()) {
                 for (JsonNode node : values) {
-                    String filePath = node.asText();
+                    String filePath = node.asString();
                     if (filePath.endsWith(MD_EXTENSION) && !isExcluded(filePath)) {
                         processMarkdownFile(projectKey, repositorySlug, filePath, exportDir);
                     }
@@ -189,23 +176,23 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         String filename = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
         String bitbucketFileUrl = String.format("%s/projects/%s/repos/%s/browse/%s", bitbucketProperties.getBaseUrl(), projectKey, repositorySlug, filePath);
 
-        StringBuilder sb = new StringBuilder();
-        sb.append(FRONTMATTER_DASHES);
-        sb.append("title: '").append(filename).append("'\n");
-        sb.append("url: '").append(bitbucketFileUrl).append("'\n");
-        sb.append(FRONTMATTER_DASHES).append("\n");
-        sb.append(processedContent);
+        String sb = FRONTMATTER_DASHES +
+                "title: '" + filename + "'\n" +
+                "url: '" + bitbucketFileUrl + "'\n" +
+                FRONTMATTER_DASHES + "\n" +
+                processedContent;
 
-        String repoSafeName = BB_PREFIX + projectKey + "_" + repositorySlug;
         String safePath = filePath.replace("/", "_");
         Path targetFile = exportDir.resolve("bb_" + projectKey + "_" + repositorySlug + "_" + safePath);
 
-        Files.writeString(targetFile, sb.toString(), StandardCharsets.UTF_8);
+        Files.writeString(targetFile, sb, StandardCharsets.UTF_8);
         log.info("Saved to: {}", targetFile);
     }
 
-    private record ImageReplacement(int startOffset, int endOffset, String safeName) {}
+    private record ImageReplacement(int startOffset, int endOffset, String safeName) {
+    }
 
+    @SuppressWarnings("DuplicatedCode")
     private String processImagesAndReplace(String projectKey, String repositorySlug, String mdPath, String content, Path exportDir) {
         String repoSafeName = BB_PREFIX + projectKey + "-" + repositorySlug;
         Path assetsDir = exportDir.resolve(ASSETS_DIR).resolve(repoSafeName);
@@ -242,6 +229,7 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         return sb.toString();
     }
 
+    @SuppressWarnings("HttpUrlsUsage")
     private String processImage(String projectKey, String repositorySlug, String mdPath, String url, Path assetsDir) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
             return retryTemplate.execute(context -> {
@@ -263,37 +251,36 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         }
     }
 
+    @SuppressWarnings("DuplicatedCode")
     private String resolveRelativePath(String mdPath, String imgPath) {
         if (imgPath.startsWith("/")) {
             return imgPath.substring(1);
         }
 
-        String parent = "";
+        StringBuilder parent = new StringBuilder();
         int lastSlash = mdPath.lastIndexOf('/');
         if (lastSlash != -1) {
-            parent = mdPath.substring(0, lastSlash);
+            parent = new StringBuilder(mdPath.substring(0, lastSlash));
         }
 
         String[] parts = imgPath.split("/");
         for (String part : parts) {
-            if (part.equals(".")) {
-                continue;
-            } else if (part.equals("..")) {
-                int lastParentSlash = parent.lastIndexOf('/');
+            if (part.equals("..")) {
+                int lastParentSlash = parent.toString().lastIndexOf('/');
                 if (lastParentSlash != -1) {
-                    parent = parent.substring(0, lastParentSlash);
+                    parent = new StringBuilder(parent.substring(0, lastParentSlash));
                 } else {
-                    parent = "";
+                    parent = new StringBuilder();
                 }
-            } else {
+            } else if (!part.equals(".")) {
                 if (parent.isEmpty()) {
-                    parent = part;
+                    parent = new StringBuilder(part);
                 } else {
-                    parent = parent + "/" + part;
+                    parent.append("/").append(part);
                 }
             }
         }
-        return parent;
+        return parent.toString();
     }
 
     private String downloadBitbucketImage(String projectKey, String repositorySlug, String path, Path assetsDir) throws IOException {
@@ -307,13 +294,13 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         String rawUri = String.format("/rest/api/1.0/projects/%s/repos/%s/raw/%s", projectKey, repositorySlug, path);
         ResponseEntity<byte[]> response;
         try {
-             response = bitbucketRestClient.get()
-                .uri(rawUri)
-                .retrieve()
-                .toEntity(byte[].class);
+            response = bitbucketRestClient.get()
+                    .uri(rawUri)
+                    .retrieve()
+                    .toEntity(byte[].class);
         } catch (Exception e) {
-             log.warn("Failed to download relative image: {}", path);
-             return safeName;
+            log.warn("Failed to download relative image: {}", path);
+            return safeName;
         }
 
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
@@ -323,6 +310,7 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
         return safeName;
     }
 
+    @SuppressWarnings("DuplicatedCode")
     private String downloadExternalImage(String url, Path assetsDir) throws IOException {
         String filename = url.substring(url.lastIndexOf('/') + 1);
         if (filename.contains("?")) {
@@ -340,13 +328,13 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
 
         ResponseEntity<byte[]> response;
         try {
-             response = bitbucketRestClient.get()
-                .uri(url)
-                .retrieve()
-                .toEntity(byte[].class);
+            response = bitbucketRestClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .toEntity(byte[].class);
         } catch (Exception e) {
-             log.warn("Failed to download external image: {}", url);
-             return filename;
+            log.warn("Failed to download external image: {}", url);
+            return filename;
         }
 
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
