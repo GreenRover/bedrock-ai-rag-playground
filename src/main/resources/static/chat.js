@@ -106,20 +106,43 @@ function appendSources(sources) {
     sourceBox.appendChild(title);
 
     sources.forEach((sourceObj, index) => {
-        const p = document.createElement('p');
-        p.className = 'source-item small mb-1';
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'source-item mb-4 p-3 bg-white border rounded shadow-sm';
 
-        const scoreBadge = sourceObj.score != null ? `<span class="badge bg-success rounded-pill me-2">${sourceObj.score.toFixed(2)}</span>` : '';
+        // Add Headline with Link and Score Badge
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'mb-2 d-flex justify-content-between align-items-start';
 
-        const text = `[Source ${index + 1}] ${sourceObj.text}`;
-        const urlRegex = /(https?:\/\/[^\s]+)/g;
-        const formattedText = text.replace(urlRegex, (match) => {
-            const linkText = sourceObj.title ? sourceObj.title : match;
-            return `<a href="${match}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">${linkText}</a>`;
-        });
+        const displayTitle = sourceObj.titlePath || sourceObj.title || `Source ${index + 1}`;
+        const url = sourceObj.url || '#';
 
-        p.innerHTML = scoreBadge + formattedText;
-        sourceBox.appendChild(p);
+        const titleSpan = document.createElement('span');
+        if (sourceObj.url) {
+            titleSpan.innerHTML = `<strong><a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary text-decoration-none">${displayTitle}</a></strong>`;
+        } else {
+            titleSpan.innerHTML = `<strong class="text-dark">${displayTitle}</strong>`;
+        }
+
+        headerDiv.appendChild(titleSpan);
+
+        if (sourceObj.score != null) {
+            const scoreBadge = document.createElement('span');
+            scoreBadge.className = 'badge bg-info text-dark rounded-pill border';
+            scoreBadge.textContent = 'Score: ' + sourceObj.score.toFixed(3);
+            headerDiv.appendChild(scoreBadge);
+        }
+
+        itemDiv.appendChild(headerDiv);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'small text-break source-content text-dark';
+
+        // Parse the Markdown using marked
+        contentDiv.innerHTML = marked.parse(sourceObj.text || '');
+
+        itemDiv.appendChild(contentDiv);
+
+        sourceBox.appendChild(itemDiv);
     });
 
     chatBox.appendChild(sourceBox);

@@ -18,6 +18,7 @@ public class ChatApplication {
     public static final String ARG_SYNC_GITHUB = "sync-github";
     public static final String ARG_SYNC_BITBUCKET = "sync-bitbucket";
     public static final String ARG_REBUILD_RAG = "rebuild-rag";
+    public static final String ARG_ERASE_EXPORT_DIR = "erase-export-dir";
 
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(ChatApplication.class);
@@ -29,7 +30,8 @@ public class ChatApplication {
                     arg.contains(ARG_SYNC_CONFLUENCE) ||
                     arg.contains(ARG_SYNC_GITHUB) ||
                     arg.contains(ARG_SYNC_BITBUCKET) ||
-                    arg.contains(ARG_REBUILD_RAG)
+                    arg.contains(ARG_REBUILD_RAG) ||
+                    arg.contains(ARG_ERASE_EXPORT_DIR)
             ) {
                 app.setWebApplicationType(WebApplicationType.NONE);
                 isCliMode = true;
@@ -51,4 +53,3 @@ public class ChatApplication {
         app.run(args);
     }
 }
-

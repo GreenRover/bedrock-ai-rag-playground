@@ -68,6 +68,7 @@ Alternatively, you can run specific scraper tasks by providing one or more of th
 - `--sync-bitbucket`: Syncs markdown files from configured Bitbucket repositories.
 - `--sync-confluence`: Syncs metadata and text content from Confluence.
 - `--rebuild-rag`: Rebuilds the rag / PostgreSQL db.
+- `--erase-export-dir`: Erases the local export directory before downloading everything again.
 
 Since `./mvnw spring-boot:run` does not load `.env` files out of the box, you can load the variables into your shell environment first (e.g., in bash: `export $(grep -v '^#' .env | xargs)`), or use a tool like `dotenv-cli`.
 

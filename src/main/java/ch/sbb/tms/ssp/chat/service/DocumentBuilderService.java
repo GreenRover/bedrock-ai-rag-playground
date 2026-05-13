@@ -23,6 +23,8 @@ import static ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService.ATTACHMENT
 @RequiredArgsConstructor
 public class DocumentBuilderService {
 
+    public final static String ENGLISH_CACHE_FILE_SUFFIX = ".en-cache";
+
     private final DocumentTranslationService documentTranslationService;
     private final DocumentIngestor documentIngestor;
     private final JdbcTemplate jdbcTemplate;
@@ -41,7 +43,7 @@ public class DocumentBuilderService {
 
     public void rebuildRag() throws IOException {
         log.info("\nRebuilding RAG and ingesting into PostgresDB ...");
-        
+
         log.info("Truncating existing embeddings table...");
         jdbcTemplate.execute("TRUNCATE TABLE embeddings");
 
@@ -57,7 +59,7 @@ public class DocumentBuilderService {
                             String content = Files.readString(txtPath, StandardCharsets.UTF_8);
                             content = replaceAttachmentPlaceholdersWithAttachmentDescription(txtPath, content);
 
-                            Path cachePath = Path.of(txtPath + ".en-cache");
+                            Path cachePath = Path.of(txtPath + ENGLISH_CACHE_FILE_SUFFIX);
                             if (Files.exists(cachePath) && Files.getLastModifiedTime(cachePath).compareTo(Files.getLastModifiedTime(txtPath)) > 0) {
                                 log.debug("Cache hit for {}", txtPath.getFileName().toString());
                                 content = Files.readString(cachePath, StandardCharsets.UTF_8);

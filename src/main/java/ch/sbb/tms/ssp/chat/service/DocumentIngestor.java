@@ -107,11 +107,32 @@ public class DocumentIngestor {
                     metadata.put("parent_context", parentContext);
                 }
 
-                if (part.length() > maxSegmentSize) {
-                    Document subDoc = Document.document(part, metadata);
+                // ====================================================================
+                // NEW: Inject breadcrumbs and title path directly into the chunk text
+                // ====================================================================
+                String titlePath = metadata.getString("title_path");
+                StringBuilder contextHeader = new StringBuilder();
+
+                if (titlePath != null && !titlePath.isBlank()) {
+                    contextHeader.append("Document Context: ").append(titlePath).append("\n");
+                }
+                if (!parentContext.isEmpty()) {
+                    contextHeader.append("Section Hierarchy: ").append(parentContext).append("\n");
+                }
+
+                String enrichedPart = part;
+                if (!contextHeader.isEmpty()) {
+                    // Prepend the contextual headers to the actual chunk text
+                    enrichedPart = contextHeader.toString() + "\n" + part;
+                }
+                // ====================================================================
+
+                // Use the 'enrichedPart' for length checks and TextSegment generation
+                if (enrichedPart.length() > maxSegmentSize) {
+                    Document subDoc = Document.document(enrichedPart, metadata);
                     allSegments.addAll(recursiveFallback.split(subDoc));
                 } else {
-                    allSegments.add(TextSegment.from(part, metadata));
+                    allSegments.add(TextSegment.from(enrichedPart, metadata));
                 }
             }
             log.debug("Document split into {} segments.", allSegments.size());

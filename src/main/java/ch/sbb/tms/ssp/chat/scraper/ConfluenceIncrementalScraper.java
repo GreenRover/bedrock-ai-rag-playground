@@ -4,6 +4,7 @@ import ch.sbb.tms.ssp.chat.config.properties.ConfluenceProperties;
 import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.ConfluenceClient;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
+import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -127,6 +128,10 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
             String safeTitle = title.replaceAll("[\\\\/*?:\"<>|]", "").replace(" ", "_");
             Path filePath = EXPORT_DIR.resolve(pageId + "_" + safeTitle + ".md");
             Files.writeString(filePath, sb.toString(), StandardCharsets.UTF_8);
+
+            // Delete cache file to force translation service to re-run
+            Path cacheFilePath = Path.of(filePath + DocumentBuilderService.ENGLISH_CACHE_FILE_SUFFIX);
+            Files.deleteIfExists(cacheFilePath);
 
             // Download attachments
             downloadAttachments(pageId);

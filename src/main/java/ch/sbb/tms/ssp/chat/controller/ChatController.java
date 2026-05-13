@@ -22,7 +22,7 @@ public class ChatController {
 
     private final Assistant assistant;
 
-    public record SourceDto(String text, Double score, String title) {}
+    public record SourceDto(String text, Double score, String title, String url, String titlePath) {}
     public record ChatRequestDto(String message, String systemPromptContext) {}
     public record ChatResponseDto(String answer, List<SourceDto> sources) {}
 
@@ -39,10 +39,15 @@ public class ChatController {
         List<SourceDto> sources = result.sources().stream()
                 .map(content -> {
                     String text = content.textSegment().text();
-                    Object scoreObj = content.metadata().get(ContentMetadata.SCORE);
+                    Object scoreObj = content.metadata().get(ContentMetadata.RERANKED_SCORE);
+                    if (scoreObj == null) {
+                        scoreObj = content.metadata().get(ContentMetadata.SCORE);
+                    }
                     Double score = scoreObj != null ? ((Number) scoreObj).doubleValue() : null;
                     String title = content.textSegment().metadata().getString("title");
-                    return new SourceDto(text, score, title);
+                    String url = content.textSegment().metadata().getString("url");
+                    String titlePath = content.textSegment().metadata().getString("title_path");
+                    return new SourceDto(text, score, title, url, titlePath);
                 })
                 .toList();
 

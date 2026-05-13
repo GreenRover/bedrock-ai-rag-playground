@@ -61,9 +61,14 @@ public class PostgresHybridRetriever implements ContentRetriever {
             ),
             keyword_search AS (
                 SELECT embedding_id, text, metadata,
-                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(to_tsvector('english', text), websearch_to_tsquery('english', ?)) DESC) AS k_rank
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(
+                           setweight(to_tsvector('english', COALESCE((metadata::jsonb)->>'title_path', '')), 'A') ||
+                           setweight(to_tsvector('english', text), 'B'),
+                           websearch_to_tsquery('english', ?)
+                       ) DESC) AS k_rank
                 FROM embeddings
-                WHERE text @@ websearch_to_tsquery('english', ?)
+                WHERE (setweight(to_tsvector('english', COALESCE((metadata::jsonb)->>'title_path', '')), 'A') ||
+                       setweight(to_tsvector('english', text), 'B')) @@ websearch_to_tsquery('english', ?)
                 LIMIT 50
             )
             SELECT

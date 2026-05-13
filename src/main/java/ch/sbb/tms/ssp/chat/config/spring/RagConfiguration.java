@@ -4,6 +4,7 @@ import ch.sbb.tms.ssp.chat.service.Assistant;
 import ch.sbb.tms.ssp.chat.service.BedrockAmazonScoringModel;
 import ch.sbb.tms.ssp.chat.service.LoggingReRankingContentAggregator;
 import ch.sbb.tms.ssp.chat.service.PostgresHybridRetriever;
+import ch.sbb.tms.ssp.chat.service.tools.DocumentRetrievalTools;
 import ch.sbb.tms.ssp.chat.service.tools.SolaceBrokerTools;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -174,7 +175,8 @@ public class RagConfiguration {
             ContentRetriever contentRetriever,
             QueryTransformer translationQueryTransformer,
             ContentAggregator contentAggregator,
-            SolaceBrokerTools solaceBrokerTools
+            SolaceBrokerTools solaceBrokerTools,
+            DocumentRetrievalTools documentRetrievalTools
     ) {
         DefaultContentInjector contentInjector = DefaultContentInjector.builder()
                 .metadataKeysToInclude(Arrays.asList("url", "title", "title_path", "outbound_links", "parent_context", "last_updated"))
@@ -190,7 +192,7 @@ public class RagConfiguration {
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .retrievalAugmentor(augmentor)
-                .tools(solaceBrokerTools)
+                .tools(solaceBrokerTools, documentRetrievalTools)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(20))
                 .build();
     }

@@ -34,6 +34,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
     private static final String ASSETS_DIR = "assets";
     private static final String GH_PREFIX = "gh-";
     private static final String MD_EXTENSION = ".md";
+    private static final String ADOC_EXTENSION = ".adoc";
     private static final String FRONTMATTER_DASHES = "---\n";
 
     private final BedrockMediaTranslationService bedrockMediaTranslationService;
@@ -128,7 +129,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
 
         GHTree tree = repository.getTreeRecursive(defaultBranch, 1);
         for (GHTreeEntry entry : tree.getTree()) {
-            if ("blob".equals(entry.getType()) && entry.getPath().endsWith(MD_EXTENSION) && !isExcluded(entry.getPath())) {
+            if ("blob".equals(entry.getType()) && (entry.getPath().endsWith(MD_EXTENSION) || entry.getPath().endsWith(ADOC_EXTENSION)) && !isExcluded(entry.getPath())) {
                 processMarkdownFile(repository, entry, repoFullName, exportDir);
             }
         }
@@ -144,7 +145,9 @@ public class GithubMarkdownScraper implements DocumentScraper {
             rawContent = new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        String processedContent = processImagesAndReplace(repository, path, rawContent, repoFullName, exportDir);
+        String processedContent = path.endsWith(ADOC_EXTENSION)
+                ? rawContent
+                : processImagesAndReplace(repository, path, rawContent, repoFullName, exportDir);
 
         String filename = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
         String githubFileUrl = content.getHtmlUrl();
