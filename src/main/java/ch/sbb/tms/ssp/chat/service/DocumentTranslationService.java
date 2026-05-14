@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 import static ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService.ATTACHMENT_PREFIX;
@@ -78,6 +80,7 @@ public class DocumentTranslationService {
         } else {
             content = ensureEnglish(markdownPath.getFileName().toString(), content);
             Files.writeString(cachePath, content, StandardCharsets.UTF_8);
+            log.debug("Translated to English {}", markdownPath.getFileName().toString());
             return content;
         }
     }
@@ -181,22 +184,38 @@ public class DocumentTranslationService {
     }
 
     public void translateAllMarkdowns() throws IOException {
+        List<Path> targetFiles;
         try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
-
-            paths.filter(Files::isRegularFile)
+            targetFiles = paths.filter(Files::isRegularFile)
                     .filter(p -> p.getParent().equals(EXPORT_DIR))
                     .filter(p -> p.toString().endsWith(".md"))
-                    .parallel()
-                    .forEach(markdownPath -> {
-                        try {
-                            translateMarkdownToEnglishAndInjectAttachmentDescription(markdownPath);
-                        } catch (IOException e) {
-                            log.error("Error reading file: {}", markdownPath, e);
-                        }
-                    });
-
-            log.info("Done! All files necessary was translated to English.");
+                    .toList();
         }
+
+        int total = targetFiles.size();
+        AtomicInteger processed = new AtomicInteger(0);
+        AtomicLong lastPrintTime = new AtomicLong(System.currentTimeMillis());
+
+        targetFiles.stream()
+                .parallel()
+                .forEach(markdownPath -> {
+                    try {
+                        translateMarkdownToEnglishAndInjectAttachmentDescription(markdownPath);
+                    } catch (IOException e) {
+                        log.error("Error reading file: {}", markdownPath, e);
+                    }
+
+                    synchronized (lastPrintTime) {
+                        int current = processed.incrementAndGet();
+                        long now = System.currentTimeMillis();
+                        long lastTime = lastPrintTime.get();
+                        if (now - lastTime > 60000 && lastPrintTime.compareAndSet(lastTime, now)) {
+                            log.info("Document translation progress: {}/{} completed", current, total);
+                        }
+                    }
+                });
+
+        log.info("Done! All files necessary was translated to English.");
     }
 
     /**

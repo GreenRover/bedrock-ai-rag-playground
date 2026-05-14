@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.bedrockruntime.model.ValidationException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -215,6 +216,7 @@ public class BedrockMediaTranslationService {
 
     private void processWithModel(UserMessage userMessage, String title, Path pageAssetsDir) throws Exception {
         log.info("Processing asset with Bedrock: {}", title);
+        Path imageFile = pageAssetsDir.resolve(title);
         Path textFile = pageAssetsDir.resolve(title + ".md");
         try {
             ChatResponse response = chatModel.chat(ChatRequest.builder().messages(userMessage).build());
@@ -223,9 +225,9 @@ public class BedrockMediaTranslationService {
 
             Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
             log.info("Extracted text saved to {}", textFile);
-        } catch (InvalidRequestException e) {
+        } catch (InvalidRequestException | ValidationException e) {
             if (e.getMessage().contains("tokens exceeds maximum length")) {
-                log.warn("Bedrock response exceeded token limit for file {}. Consider implementing chunking for large files. Error: {}", textFile, e.getMessage());
+                log.warn("Bedrock response exceeded token limit for file {} ({} bytes). Consider implementing chunking for large files. Error: {}", imageFile, Files.size(imageFile), e.getMessage());
                 return;
             }
             log.error("Error processing asset with Bedrock: {}", textFile, e);

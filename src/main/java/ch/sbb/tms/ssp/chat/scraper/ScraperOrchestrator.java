@@ -2,6 +2,7 @@ package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
+import ch.sbb.tms.ssp.chat.service.DocumentTranslationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -19,6 +20,7 @@ public class ScraperOrchestrator {
     private final List<DocumentScraper> scrapers;
     private final DocumentBuilderService corpusBuilderService;
     private final BedrockMediaTranslationService mediaTranslationService;
+    private final DocumentTranslationService documentTranslationService;
 
     // Run once a week on Sunday at midnight
     @Scheduled(cron = "0 0 5 * * SUN")
@@ -41,10 +43,17 @@ public class ScraperOrchestrator {
         }
 
         try {
-            log.info("Running corpus builder...");
+            log.info("Running global markdown translation...");
+            documentTranslationService.translateAllMarkdowns();
+        } catch (Exception e) {
+            log.error("Error during markdown translation", e);
+        }
+
+        try {
+            log.info("Running rag rebuilder...");
             corpusBuilderService.rebuildRag();
         } catch (Exception e) {
-            log.error("Error rebuilding corpus", e);
+            log.error("Error rebuilding rag", e);
         }
         log.info("Scheduled task completed.");
     }

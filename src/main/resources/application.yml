@@ -152,6 +152,8 @@ logging:
       sbb: ${LOG_LEVEL:INFO}
       sbb.micrometer: ${KPI_LOG_LEVEL:INFO}
     org:
+      apache:
+        http: ${APACHE_HTTP_LOG_LEVEL:INFO}
       springframework:
         web: ${LOG_LEVEL:INFO}
         http:
@@ -159,6 +161,9 @@ logging:
     com:
       solacesystems:
         jcsmp: ${SOLACE_LOG_LEVEL:WARN}
+    software:
+      amazon:
+        awssdk: ${AWS_SDK_LOG_LEVEL:INFO}
     root: ${LOG_LEVEL_ROOT:INFO}
 
 springdoc:

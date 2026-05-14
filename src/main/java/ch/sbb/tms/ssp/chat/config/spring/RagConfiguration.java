@@ -10,7 +10,6 @@ import ch.sbb.tms.ssp.chat.service.tools.SolaceBrokerTools;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
-import org.springframework.util.Assert;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
@@ -30,11 +29,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.Assert;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -51,6 +53,13 @@ public class RagConfiguration {
                 .region(Region.EU_CENTRAL_1)
                 .credentialsProvider(AnonymousCredentialsProvider.create())
                 .overrideConfiguration(c -> c.putHeader("Authorization", "Bearer " + secret))
+                // Configure the Apache HTTP client to reap connections that are idle (ai is thinking very long)
+                .httpClientBuilder(ApacheHttpClient.builder()
+                        // 1. Prevent EOF errors from AWS dropping idle connections
+                        .connectionMaxIdleTime(Duration.ofSeconds(30))
+                        // 2. Allow Bedrock plenty of time to "think" and generate long responses
+                        .socketTimeout(Duration.ofMinutes(3))
+                )
                 .build();
     }
 
