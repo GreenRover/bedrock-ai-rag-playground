@@ -5,7 +5,6 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -39,7 +38,6 @@ public class DocumentBuilderService {
         EXPORT_DIR = Path.of(ragProperties.getData().getExportDir());
     }
 
-    @Transactional
     public void rebuildRag() throws IOException {
         if (!isRunning.compareAndSet(false, true)) {
             log.warn("RebuildRag is already running for {}, skipping...", this.getClass().getSimpleName());
@@ -85,7 +83,7 @@ public class DocumentBuilderService {
                     allOf(futures.toArray(new CompletableFuture[0])).join();
                 }
 
-                log.info("Done! Corpus was ingested directly into the PostgresDB.");
+                log.info("Done! markdown files was ingested directly into the PostgresDB.");
             }
         } finally {
             isRunning.set(false);
