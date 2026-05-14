@@ -19,10 +19,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+
+import static java.util.concurrent.CompletableFuture.*;
 
 @Slf4j
 @Service
@@ -59,25 +64,28 @@ public class BedrockMediaTranslationService {
             AtomicInteger processed = new AtomicInteger(0);
             AtomicLong lastPrintTime = new AtomicLong(System.currentTimeMillis());
 
-            targetFiles.stream()
-                    .parallel() // Process with Bedrock in parallel
-                    .forEach(assetPath -> {
-                        Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
-                        if (!Files.exists(textFile)) {
-                            extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
-                        } else {
-                            log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
-                        }
-
-                        synchronized (lastPrintTime) {
-                            int current = processed.incrementAndGet();
-                            long now = System.currentTimeMillis();
-                            long lastTime = lastPrintTime.get();
-                            if (now - lastTime > 60000 && lastPrintTime.compareAndSet(lastTime, now)) {
-                                log.info("Asset translation progress: {}/{} completed", current, total);
+            try (ExecutorService executor = Executors.newFixedThreadPool(8)) {
+                List<CompletableFuture<Void>> futures = targetFiles.stream()
+                        .map(assetPath -> runAsync(() -> {
+                            Path textFile = assetPath.resolveSibling(assetPath.getFileName() + ".md");
+                            if (!Files.exists(textFile)) {
+                                extractTextWithBedrock(assetPath, assetPath.getFileName().toString(), assetPath.getParent());
+                            } else {
+                                log.debug("Attachment already translated, skipping: {}", assetPath.getFileName());
                             }
-                        }
-                    });
+
+                            synchronized (lastPrintTime) {
+                                int current = processed.incrementAndGet();
+                                long now = System.currentTimeMillis();
+                                long lastTime = lastPrintTime.get();
+                                if (now - lastTime > 60000 && lastPrintTime.compareAndSet(lastTime, now)) {
+                                    log.info("Asset translation progress: {}/{} completed", current, total);
+                                }
+                            }
+                        }, executor))
+                        .toList();
+                allOf(futures.toArray(new CompletableFuture[0])).join();
+            }
 
             log.info("Global asset translation completed.");
         } finally {
@@ -88,7 +96,7 @@ public class BedrockMediaTranslationService {
     private void extractTextWithBedrock(Path targetFile, String title, Path pageAssetsDir) {
         try {
             ContentInfo info = mimeUtil.findMatch(targetFile.toFile());
-            String mimeType = null;
+            String mimeType;
 
             if (info != null) {
                 mimeType = info.getMimeType();

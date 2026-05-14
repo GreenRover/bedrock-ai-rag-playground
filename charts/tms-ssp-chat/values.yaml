@@ -15,7 +15,7 @@ logLevel: INFO
 logLevelRoot: INFO
 
 backend:
-  cpuMin: 100m
+  cpuMin: 300m
   cpuMax: 500m
   memoryMax: 2G
   # number of replicas of backend

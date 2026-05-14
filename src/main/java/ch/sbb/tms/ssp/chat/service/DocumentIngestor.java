@@ -9,6 +9,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
 import jakarta.annotation.PostConstruct;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ public class DocumentIngestor {
 
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
+    private final JdbcTemplate jdbcTemplate;
 
     private EmbeddingStoreIngestor ingestor;
 
@@ -60,6 +62,11 @@ public class DocumentIngestor {
             Document document = Document.document(text, metadata);
             ingestor.ingest(document);
         }
+    }
+
+    public void truncateTable() {
+        log.info("Truncating existing embeddings table...");
+        jdbcTemplate.execute("TRUNCATE TABLE " + PostgresHybridRetriever.TABLE_NAME);
     }
 
     /**
@@ -123,7 +130,7 @@ public class DocumentIngestor {
                 String enrichedPart = part;
                 if (!contextHeader.isEmpty()) {
                     // Prepend the contextual headers to the actual chunk text
-                    enrichedPart = contextHeader.toString() + "\n" + part;
+                    enrichedPart = contextHeader + "\n" + part;
                 }
                 // ====================================================================
 

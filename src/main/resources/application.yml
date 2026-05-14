@@ -155,9 +155,9 @@ logging:
       apache:
         http: ${APACHE_HTTP_LOG_LEVEL:INFO}
       springframework:
-        web: ${LOG_LEVEL:INFO}
+        web: ${SPRING_LOG_LEVEL:INFO}
         http:
-          client: ${LOG_LEVEL:INFO}
+          client: ${SPRING_LOG_LEVEL:INFO}
     com:
       solacesystems:
         jcsmp: ${SOLACE_LOG_LEVEL:WARN}

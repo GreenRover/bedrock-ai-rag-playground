@@ -4,14 +4,22 @@ import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+
+import static java.util.concurrent.CompletableFuture.*;
+import static java.util.concurrent.Executors.*;
 
 @Slf4j
 @Service
@@ -20,7 +28,6 @@ public class DocumentBuilderService {
 
     private final DocumentTranslationService documentTranslationService;
     private final DocumentIngestor documentIngestor;
-    private final JdbcTemplate jdbcTemplate;
     private final RagProperties ragProperties;
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -32,6 +39,7 @@ public class DocumentBuilderService {
         EXPORT_DIR = Path.of(ragProperties.getData().getExportDir());
     }
 
+    @Transactional
     public void rebuildRag() throws IOException {
         if (!isRunning.compareAndSet(false, true)) {
             log.warn("RebuildRag is already running for {}, skipping...", this.getClass().getSimpleName());
@@ -41,23 +49,41 @@ public class DocumentBuilderService {
         try {
             log.info("\nRebuilding RAG and ingesting into PostgresDB ...");
 
-            log.info("Truncating existing embeddings table...");
-            jdbcTemplate.execute("TRUNCATE TABLE " + PostgresHybridRetriever.TABLE_NAME);
+            documentIngestor.truncateTable();
 
             try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
 
-                paths.filter(Files::isRegularFile)
+                List<Path> targetFiles = paths.filter(Files::isRegularFile)
                         .filter(p -> p.getParent().equals(EXPORT_DIR))
                         .filter(p -> p.toString().endsWith(".md"))
-                        .parallel()
-                        .forEach(markdownPath -> {
-                            try {
-                                String content = documentTranslationService.translateMarkdownToEnglishAndInjectAttachmentDescription(markdownPath);
-                                documentIngestor.ingestDocument(markdownPath.getFileName().toString(), content);
-                            } catch (IOException e) {
-                                log.error("Error reading file: {}", markdownPath, e);
-                            }
-                        });
+                        .toList();
+
+                int total = targetFiles.size();
+                AtomicInteger processed = new AtomicInteger(0);
+                AtomicLong lastPrintTime = new AtomicLong(System.currentTimeMillis());
+
+                try (ExecutorService executor = newFixedThreadPool(8)) {
+                    List<CompletableFuture<Void>> futures = targetFiles.stream()
+                            .map(markdownPath -> runAsync(() -> {
+                                try {
+                                    String content = documentTranslationService.translateMarkdownToEnglishAndInjectAttachmentDescription(markdownPath);
+                                    documentIngestor.ingestDocument(markdownPath.getFileName().toString(), content);
+                                } catch (IOException e) {
+                                    log.error("Error reading file: {}", markdownPath, e);
+                                }
+
+                                synchronized (lastPrintTime) {
+                                    int current = processed.incrementAndGet();
+                                    long now = System.currentTimeMillis();
+                                    long lastTime = lastPrintTime.get();
+                                    if (now - lastTime > 60000 && lastPrintTime.compareAndSet(lastTime, now)) {
+                                        log.info("Document ingestion progress: {}/{} completed", current, total);
+                                    }
+                                }
+                            }, executor))
+                            .toList();
+                    allOf(futures.toArray(new CompletableFuture[0])).join();
+                }
 
                 log.info("Done! Corpus was ingested directly into the PostgresDB.");
             }
