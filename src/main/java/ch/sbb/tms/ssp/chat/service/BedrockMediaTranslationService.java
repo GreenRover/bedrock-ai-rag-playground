@@ -1,6 +1,8 @@
 package ch.sbb.tms.ssp.chat.service;
 
 import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
+import com.j256.simplemagic.ContentInfo;
+import com.j256.simplemagic.ContentInfoUtil;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
@@ -8,7 +10,6 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tika.Tika;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.bedrockruntime.model.ValidationException;
 
@@ -29,7 +30,7 @@ import java.util.stream.Stream;
 public class BedrockMediaTranslationService {
 
     private final ChatModel chatModel;
-    private final Tika tika = new Tika();
+    private final ContentInfoUtil mimeUtil = new ContentInfoUtil();
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final RagProperties ragProperties;
 
@@ -86,7 +87,15 @@ public class BedrockMediaTranslationService {
 
     private void extractTextWithBedrock(Path targetFile, String title, Path pageAssetsDir) {
         try {
-            String mimeType = tika.detect(targetFile);
+            ContentInfo info = mimeUtil.findMatch(targetFile.toFile());
+            String mimeType = null;
+
+            if (info != null) {
+                mimeType = info.getMimeType();
+            } else {
+                // Fallback to lookup by file ending if simplemagic fails to detect
+                mimeType = Files.probeContentType(targetFile);
+            }
 
             if ("text/plain".equals(mimeType)) {
                 log.info("File {} detected as text/plain, retaining content directly", title);
@@ -222,14 +231,21 @@ public class BedrockMediaTranslationService {
             ChatResponse response = chatModel.chat(ChatRequest.builder().messages(userMessage).build());
             String extractedText = response.aiMessage().text();
 
-
             Files.writeString(textFile, extractedText, StandardCharsets.UTF_8);
             log.info("Extracted text saved to {}", textFile);
         } catch (InvalidRequestException | ValidationException e) {
             if (e.getMessage().contains("tokens exceeds maximum length")) {
-                log.warn("Bedrock response exceeded token limit for file {} ({} bytes). Consider implementing chunking for large files. Error: {}", imageFile, Files.size(imageFile), e.getMessage());
+                log.warn("Bedrock response exceeded token limit for file {} ({} bytes). Error: {}", imageFile, Files.size(imageFile), e.getMessage());
+                Files.writeString(textFile, "", StandardCharsets.UTF_8);
                 return;
             }
+
+            if (e instanceof InvalidRequestException) {
+                log.warn("Bedrock response for file {} ({} bytes). Error: {}", imageFile, Files.size(imageFile), e.getMessage());
+                Files.writeString(textFile, "", StandardCharsets.UTF_8);
+                return;
+            }
+
             log.error("Error processing asset with Bedrock: {}", textFile, e);
             throw e;
         }
