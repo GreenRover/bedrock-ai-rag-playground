@@ -121,6 +121,8 @@ public class RagConfiguration {
                 .password(password)
                 .table(schema + "." + PostgresHybridRetriever.TABLE_NAME)
                 .dimension(1024) // Titan v2 text
+                .useIndex(false) // sbb pg database is not supporting this
+                .searchMode(PgVectorEmbeddingStore.SearchMode.HYBRID)
                 .build();
     }
 
