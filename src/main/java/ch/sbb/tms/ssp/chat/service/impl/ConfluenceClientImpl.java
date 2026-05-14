@@ -1,13 +1,13 @@
 package ch.sbb.tms.ssp.chat.service.impl;
 
+import ch.sbb.tms.ssp.chat.config.properties.ConfluenceProperties;
 import ch.sbb.tms.ssp.chat.service.ConfluenceClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
-
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.Assert;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -31,11 +31,15 @@ public class ConfluenceClientImpl implements ConfluenceClient {
     private final String apiToken;
 
     public ConfluenceClientImpl(
-            @Value("${confluence.api.url}") String baseUrl,
-            @Value("${confluence.api.token}") String apiToken) {
+            ConfluenceProperties confluenceProperties
+    ) {
 
-        this.baseUrl = baseUrl;
-        this.apiToken = apiToken;
+        this.baseUrl = confluenceProperties.getBaseUrl();
+        this.apiToken = confluenceProperties.getToken();
+
+        Assert.notNull(baseUrl, "Confluence baseUrl must not be null");
+        Assert.notNull(apiToken, "Confluence apiToken must not be null");
+
         this.httpClient = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();

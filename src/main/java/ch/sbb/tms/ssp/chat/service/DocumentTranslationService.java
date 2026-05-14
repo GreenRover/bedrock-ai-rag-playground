@@ -1,5 +1,6 @@
 package ch.sbb.tms.ssp.chat.service;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import com.github.pemistahl.lingua.api.Language;
 import com.github.pemistahl.lingua.api.LanguageDetector;
 import com.github.pemistahl.lingua.api.LanguageDetectorBuilder;
@@ -8,13 +9,24 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
 import dev.langchain4j.model.chat.ChatModel;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.Assert;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import static ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService.ATTACHMENT_PREFIX;
+import static ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService.ATTACHMENT_SUFFIX;
 
 @Slf4j
 @Service
@@ -22,28 +34,83 @@ public class DocumentTranslationService {
 
     // Define a safe max characters limit per chunk (~1000 tokens, well below standard output limits)
     private static final int MAX_CHUNK_SIZE = 4000;
+    public static final String ENGLISH_CACHE_FILE_SUFFIX = ".en-cache";
 
     private final ChatModel translatorModel;
     private final LanguageDetector languageDetector;
+    private final RagProperties ragProperties;
 
-    @Value("${rag.data.transation.model-id}")
-    String modelId;
+    private Path EXPORT_DIR;
+    private Path ASSETS_DIR;
 
-    @Value("${rag.data.transation.temperature}")
-    Double temperature;
+    @PostConstruct
+    public void init() {
+        EXPORT_DIR = Path.of(ragProperties.getData().getExportDir());
+        ASSETS_DIR = EXPORT_DIR.resolve("assets");
+    }
 
-    public DocumentTranslationService(BedrockRuntimeClient bedrockRuntimeClient) {
+    public DocumentTranslationService(BedrockRuntimeClient bedrockRuntimeClient, RagProperties ragProperties) {
+        this.ragProperties = ragProperties;
         this.languageDetector = LanguageDetectorBuilder.fromLanguages(Language.ENGLISH, Language.GERMAN, Language.FRENCH, Language.ITALIAN).build();
+
+        var translationProps = ragProperties.getData().getTranslation();
+
+        Assert.hasText(translationProps.getModelId(), "Translation model ID must not be null or empty");
+        Assert.notNull(translationProps.getTemperature(), "Translation temperature must not be null");
+
         this.translatorModel = BedrockChatModel.builder()
                 .client(bedrockRuntimeClient)
-                .modelId(modelId)
+                .modelId(translationProps.getModelId())
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(temperature)
+                        .temperature(translationProps.getTemperature())
                         .build())
                 .build();
     }
 
-    public String ensureEnglish(String fileName, String originalMarkdown) {
+    public String translateMarkdownToEnglishAndInjectAttachmentDescription(Path markdownPath) throws IOException {
+        String content = Files.readString(markdownPath, StandardCharsets.UTF_8);
+        content = replaceAttachmentPlaceholdersWithAttachmentDescription(markdownPath, content);
+
+        Path cachePath = Path.of(markdownPath + ENGLISH_CACHE_FILE_SUFFIX);
+        if (Files.exists(cachePath) && Files.getLastModifiedTime(cachePath).compareTo(Files.getLastModifiedTime(markdownPath)) > 0) {
+            log.debug("Cache hit for {}", markdownPath.getFileName().toString());
+            return Files.readString(cachePath, StandardCharsets.UTF_8);
+        } else {
+            content = ensureEnglish(markdownPath.getFileName().toString(), content);
+            Files.writeString(cachePath, content, StandardCharsets.UTF_8);
+            return content;
+        }
+    }
+
+    private String replaceAttachmentPlaceholdersWithAttachmentDescription(Path txtPath, String content) throws IOException {
+        String fileName = txtPath.getFileName().toString();
+
+        Path pageAssetsDir = null;
+        try (Stream<Path> dirs = Files.list(ASSETS_DIR)) {
+            Optional<Path> foundDir = dirs.filter(Files::isDirectory)
+                    .filter(d -> fileName.startsWith(d.getFileName().toString() + "_"))
+                    .max(Comparator.comparingInt(d -> d.getFileName().toString().length()));
+            if (foundDir.isPresent()) {
+                pageAssetsDir = foundDir.get();
+            }
+        }
+
+        if (pageAssetsDir == null || !Files.exists(pageAssetsDir)) {
+            return content;
+        }
+
+        try (Stream<Path> assetPaths = Files.list(pageAssetsDir)) {
+            for (Path assetTxtPath : assetPaths.filter(p -> p.toString().endsWith(".md")).toList()) {
+                String assetFileName = assetTxtPath.getFileName().toString().replace(".md", "");
+                String assetContent = Files.readString(assetTxtPath, StandardCharsets.UTF_8);
+                content = content.replace(ATTACHMENT_PREFIX + assetFileName + ATTACHMENT_SUFFIX,
+                        "\n--- Asset Translation: " + assetFileName + " ---\n" + assetContent + "\n");
+            }
+        }
+        return content;
+    }
+
+    private String ensureEnglish(String fileName, String originalMarkdown) {
         try {
             // Step 1: Detect Language locally
             String snippet = originalMarkdown.length() > 1000 ? originalMarkdown.substring(0, 1000) : originalMarkdown;
@@ -56,11 +123,12 @@ public class DocumentTranslationService {
 
             // Step 2: Translate in chunks to prevent hitting output token limits
             log.info("Translating {} to English... (detected language: {})", fileName, detectedLanguage);
-            SystemMessage transSys = SystemMessage.from("You are an expert technical translator. Translate the provided Markdown document into English. \n" +
-                    "CRITICAL INSTRUCTIONS:\n" +
-                    "- Preserve all Markdown formatting, YAML frontmatter, HTML tags, links, and code blocks exactly as they are.\n" +
-                    "- Only translate the natural language text.\n" +
-                    "- Output ONLY the translated Markdown. Do not add intro/outro text.");
+            SystemMessage transSys = SystemMessage.from("""
+                    You are an expert technical translator. Translate the provided Markdown document into English.\s
+                    CRITICAL INSTRUCTIONS:
+                    - Preserve all Markdown formatting, YAML frontmatter, HTML tags, links, and code blocks exactly as they are.
+                    - Only translate the natural language text.
+                    - Output ONLY the translated Markdown. Do not add intro/outro text.""");
 
             List<String> chunks = splitMarkdown(originalMarkdown, MAX_CHUNK_SIZE);
             StringBuilder translatedContent = new StringBuilder();
@@ -110,5 +178,36 @@ public class DocumentTranslationService {
         }
 
         return chunks;
+    }
+
+    public void translateAllMarkdowns() throws IOException {
+        try (Stream<Path> paths = Files.walk(EXPORT_DIR)) {
+
+            paths.filter(Files::isRegularFile)
+                    .filter(p -> p.getParent().equals(EXPORT_DIR))
+                    .filter(p -> p.toString().endsWith(".md"))
+                    .parallel()
+                    .forEach(markdownPath -> {
+                        try {
+                            translateMarkdownToEnglishAndInjectAttachmentDescription(markdownPath);
+                        } catch (IOException e) {
+                            log.error("Error reading file: {}", markdownPath, e);
+                        }
+                    });
+
+            log.info("Done! All files necessary was translated to English.");
+        }
+    }
+
+    /**
+     * Delete cache file to force translation service to re-run
+     */
+    public static void deleteCacheFile(Path filePath) {
+        try {
+            Path cacheFilePath = Path.of(filePath + ENGLISH_CACHE_FILE_SUFFIX);
+            Files.deleteIfExists(cacheFilePath);
+        } catch (IOException e) {
+            log.warn("Failed to delete cache file for {}: {}", filePath.getFileName().toString(), e.getMessage());
+        }
     }
 }

@@ -1,6 +1,7 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.GithubProperties;
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
 import com.vladsch.flexmark.ast.Image;
 import com.vladsch.flexmark.parser.Parser;
@@ -10,7 +11,6 @@ import com.vladsch.flexmark.util.ast.VisitHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.kohsuke.github.*;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
@@ -43,9 +43,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
     private final RestClient githubRestClient;
     private final RetryTemplate githubRetryTemplate;
     private final GithubProperties githubProperties;
-
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDirString;
+    private final RagProperties ragProperties;
 
     @Override
     public void scrape() {
@@ -67,7 +65,7 @@ public class GithubMarkdownScraper implements DocumentScraper {
                 log.warn("GITHUB_TOKEN is not set, GitHub scraping might fail due to rate limits.");
             }
 
-            Path exportDir = Path.of(exportDirString);
+            Path exportDir = Path.of(ragProperties.getData().getExportDir());
             Files.createDirectories(exportDir);
 
             log.info("Connecting to GitHub with {} repositories configured...", repositoryUrls.size());

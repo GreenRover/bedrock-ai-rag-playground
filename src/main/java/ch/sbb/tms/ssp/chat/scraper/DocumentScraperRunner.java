@@ -1,11 +1,11 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.ChatApplication;
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Lazy;
@@ -33,9 +33,7 @@ public class DocumentScraperRunner implements ApplicationRunner {
     private final BedrockMediaTranslationService mediaTranslationService;
 
     private final DocumentBuilderService corpusBuilderService;
-
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDir;
+    private final RagProperties ragProperties;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -49,6 +47,7 @@ public class DocumentScraperRunner implements ApplicationRunner {
             boolean eraseExportDir = args.containsOption(ChatApplication.ARG_ERASE_EXPORT_DIR);
 
             if (eraseExportDir) {
+                String exportDir = ragProperties.getData().getExportDir();
                 log.info("CLI argument --{} detected. Erasing export directory: {}", ChatApplication.ARG_ERASE_EXPORT_DIR, exportDir);
                 Path exportPath = Paths.get(exportDir);
                 if (java.nio.file.Files.exists(exportPath)) {

@@ -1,7 +1,7 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.GithubProperties;
-import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,6 +28,7 @@ class GithubMarkdownScraperTest {
     Path tempDir;
 
     private GithubProperties githubProperties;
+    private RagProperties ragProperties;
     private GitHub gitHub;
     private RestClient restClient;
     private RetryTemplate retryTemplate;
@@ -36,13 +37,16 @@ class GithubMarkdownScraperTest {
     @BeforeEach
     void setUp() {
         githubProperties = new GithubProperties();
+        ragProperties = new RagProperties();
+        RagProperties.DataProperties dataProperties = new RagProperties.DataProperties();
+        dataProperties.setExportDir(tempDir.toString());
+        ragProperties.setData(dataProperties);
         gitHub = mock(GitHub.class);
 
         restClient = mock(RestClient.class);
         retryTemplate = new RetryTemplate();
 
-        scraper = new GithubMarkdownScraper(gitHub, restClient, retryTemplate, githubProperties);
-        ReflectionTestUtils.setField(scraper, "exportDirString", tempDir.toString());
+        scraper = new GithubMarkdownScraper(gitHub, restClient, retryTemplate, githubProperties, ragProperties);
     }
 
     @Test

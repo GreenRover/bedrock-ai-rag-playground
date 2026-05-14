@@ -1,6 +1,7 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.BitbucketProperties;
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
 import com.vladsch.flexmark.ast.Image;
 import com.vladsch.flexmark.parser.Parser;
@@ -9,7 +10,6 @@ import com.vladsch.flexmark.util.ast.NodeVisitor;
 import com.vladsch.flexmark.util.ast.VisitHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
@@ -39,9 +39,7 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
 
     private final BitbucketProperties bitbucketProperties;
 
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDirString;
-
+    private final RagProperties ragProperties;
     private final RestClient bitbucketRestClient;
     private final RetryTemplate retryTemplate;
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
@@ -68,7 +66,7 @@ public class BitbucketMarkdownScraper implements DocumentScraper {
                 log.warn("BITBUCKET_TOKEN is not set, Bitbucket scraping might fail.");
             }
 
-            Path exportDir = Path.of(exportDirString);
+            Path exportDir = Path.of(ragProperties.getData().getExportDir());
             Files.createDirectories(exportDir);
 
             log.info("Connecting to Bitbucket with {} repositories configured...", repositoryUrls.size());

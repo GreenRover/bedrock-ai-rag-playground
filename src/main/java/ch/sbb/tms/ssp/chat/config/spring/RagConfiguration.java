@@ -1,5 +1,6 @@
 package ch.sbb.tms.ssp.chat.config.spring;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.service.Assistant;
 import ch.sbb.tms.ssp.chat.service.BedrockAmazonScoringModel;
 import ch.sbb.tms.ssp.chat.service.LoggingReRankingContentAggregator;
@@ -9,6 +10,7 @@ import ch.sbb.tms.ssp.chat.service.tools.SolaceBrokerTools;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
+import org.springframework.util.Assert;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.bedrock.BedrockChatModel;
 import dev.langchain4j.model.bedrock.BedrockChatRequestParameters;
@@ -55,16 +57,20 @@ public class RagConfiguration {
     @Bean
     ChatModel chatModel(
             BedrockRuntimeClient client,
-            @Value("${rag.chat.model-id}") String modelId,
-            @Value("${rag.chat.temperature}") Double temperature,
-            @Value("${rag.chat.max-output-tokens}") Integer maxOutputTokens
+            RagProperties ragProperties
     ) {
+        var chatProps = ragProperties.getChat();
+
+        Assert.notNull(chatProps.getModelId(), "Chat model ID must not be null");
+        Assert.notNull(chatProps.getTemperature(), "Chat temperature must not be null");
+        Assert.notNull(chatProps.getMaxOutputTokens(), "Chat max output tokens must not be null");
+
         return BedrockChatModel.builder()
                 .client(client)
-                .modelId(modelId)
+                .modelId(chatProps.getModelId())
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(temperature)
-                        .maxOutputTokens(maxOutputTokens)
+                        .temperature(chatProps.getTemperature())
+                        .maxOutputTokens(chatProps.getMaxOutputTokens())
                         .build())
                 .build();
     }
@@ -117,27 +123,36 @@ public class RagConfiguration {
     @Bean
     ContentAggregator contentAggregator(
             BedrockAmazonScoringModel scoringModel,
-            @Value("${rag.rerank.min-score}") Double minScore,
-            @Value("${rag.rerank.max-results}") Integer maxResults
-            ) {
+            RagProperties ragProperties
+    ) {
+        var rerankProps = ragProperties.getRerank();
+
+        Assert.notNull(rerankProps.getModelId(), "Rerank model ID must not be null");
+        Assert.notNull(rerankProps.getMinScore(), "Rerank minimum score must not be null");
+        Assert.notNull(rerankProps.getMaxResults(), "Rerank maximum results must not be null");
+
         return LoggingReRankingContentAggregator.builder()
                 .scoringModel(scoringModel)
-                .minScore(minScore)
-                .maxResults(maxResults)
+                .minScore(rerankProps.getMinScore())
+                .maxResults(rerankProps.getMaxResults())
                 .build();
     }
 
     @Bean
     ChatModel translationChatModel(
             BedrockRuntimeClient client,
-            @Value("${rag.chat.translation.model-id}") String modelId,
-            @Value("${rag.chat.translation.temperature}") Double temperature
+            RagProperties ragProperties
     ) {
+        var chatTranslationProps = ragProperties.getChat().getTranslation();
+
+        Assert.notNull(chatTranslationProps.getModelId(), "Translation model ID must not be null");
+        Assert.notNull(chatTranslationProps.getTemperature(), "Translation temperature must not be null");
+
         return BedrockChatModel.builder()
                 .client(client)
-                .modelId(modelId)
+                .modelId(chatTranslationProps.getModelId())
                 .defaultRequestParameters(BedrockChatRequestParameters.builder()
-                        .temperature(temperature)
+                        .temperature(chatTranslationProps.getTemperature())
                         .build())
                 .build();
     }
@@ -146,17 +161,17 @@ public class RagConfiguration {
     QueryTransformer translationQueryTransformer(ChatModel translationChatModel) {
         return query -> {
             String prompt = """
-                You are an expert technical translator and search query optimizer for an enterprise messaging (Solace), prometheus monitoring and Java knowledge base.
-                Your task is to prepare the user's query for a hybrid vector and full-text database search.
+                    You are an expert technical translator and search query optimizer for an enterprise messaging (Solace), prometheus monitoring and Java knowledge base.
+                    Your task is to prepare the user's query for a hybrid vector and full-text database search.
 
-                <instructions>
-                1. Translate the query into English if it is not already in English.
-                2. Expand common technical and messaging abbreviations/acronyms by including BOTH the abbreviation and the full term to maximize search hits (e.g., change 'ttl' to 'ttl time to live', 'ha' to 'ha high availability', 'dr' to 'dr disaster recovery', 'msg' to 'msg message').
-                3. Add highly relevant synonyms if the user uses informal terms.
-                4. Do not answer the question; only rewrite the query.
-                5. Output ONLY the optimized English query, without any conversational filler, quotes, prefixes, or markdown.
-                </instructions>
-                """;
+                    <instructions>
+                    1. Translate the query into English if it is not already in English.
+                    2. Expand common technical and messaging abbreviations/acronyms by including BOTH the abbreviation and the full term to maximize search hits (e.g., change 'ttl' to 'ttl time to live', 'ha' to 'ha high availability', 'dr' to 'dr disaster recovery', 'msg' to 'msg message').
+                    3. Add highly relevant synonyms if the user uses informal terms.
+                    4. Do not answer the question; only rewrite the query.
+                    5. Output ONLY the optimized English query, without any conversational filler, quotes, prefixes, or markdown.
+                    </instructions>
+                    """;
 
             String translatedText = translationChatModel.chat(
                     SystemMessage.from(prompt),

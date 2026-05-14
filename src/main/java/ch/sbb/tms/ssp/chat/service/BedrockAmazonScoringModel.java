@@ -1,14 +1,15 @@
 package ch.sbb.tms.ssp.chat.service;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.output.Response;
 import dev.langchain4j.model.scoring.ScoringModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -19,8 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import dev.langchain4j.model.output.Response;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -29,8 +28,7 @@ public class BedrockAmazonScoringModel implements ScoringModel {
     private final BedrockRuntimeClient bedrockRuntimeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${rag.rerank.model-id}")
-    String modelId;
+    private final RagProperties ragProperties;
 
     @Override
     public Response<List<Double>> scoreAll(List<TextSegment> segments, String query) {
@@ -44,7 +42,7 @@ public class BedrockAmazonScoringModel implements ScoringModel {
             }
 
             InvokeModelRequest request = InvokeModelRequest.builder()
-                    .modelId(modelId)
+                    .modelId(ragProperties.getRerank().getModelId())
                     .contentType("application/json")
                     .accept("application/json")
                     .body(SdkBytes.fromString(payload.toString(), StandardCharsets.UTF_8))

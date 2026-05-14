@@ -1,5 +1,6 @@
 package ch.sbb.tms.ssp.chat.service;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
@@ -8,7 +9,6 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -30,9 +30,7 @@ public class BedrockMediaTranslationService {
     private final ChatModel chatModel;
     private final Tika tika = new Tika();
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
-
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDirString;
+    private final RagProperties ragProperties;
 
     public void translateAllAssets() throws IOException {
         if (!isRunning.compareAndSet(false, true)) {
@@ -41,7 +39,7 @@ public class BedrockMediaTranslationService {
         }
 
         try {
-            Path exportDir = Path.of(exportDirString);
+            Path exportDir = Path.of(ragProperties.getData().getExportDir());
 
             Path assetsDir = exportDir.resolve("assets");
             if (!Files.exists(assetsDir)) return;

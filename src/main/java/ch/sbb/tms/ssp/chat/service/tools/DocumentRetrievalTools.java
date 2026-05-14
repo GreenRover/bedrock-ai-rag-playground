@@ -1,9 +1,9 @@
 package ch.sbb.tms.ssp.chat.service.tools;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -18,14 +18,13 @@ import java.util.stream.Stream;
 @SuppressWarnings("unused")
 public class DocumentRetrievalTools {
 
-    @Value("${rag.data.export-dir:data_export}")
-    String exportDirString;
+    private final RagProperties ragProperties;
 
     @Tool("Fetches the full Markdown content of a documentation page by its title. Use this when a user asks about a topic or you see a relevant link in outbound_links, but you don't have enough context.")
     public String fetchDocumentContent(String title) {
         String safeTitle = title.replaceAll("[\\\\/*?:\"<>|]", "").replace(" ", "_");
         String fileSuffix = "_" + safeTitle + ".md";
-        Path exportPath = Paths.get(exportDirString);
+        Path exportPath = Paths.get(ragProperties.getData().getExportDir());
 
         if (!Files.exists(exportPath) || !Files.isDirectory(exportPath)) {
             return "Error: Export directory not found.";

@@ -1,9 +1,10 @@
 package ch.sbb.tms.ssp.chat.scraper;
 
 import ch.sbb.tms.ssp.chat.config.properties.ConfluenceProperties;
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.service.ConfluenceClient;
 import ch.sbb.tms.ssp.chat.service.ConfluenceToMarkdownService;
-import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
+import ch.sbb.tms.ssp.chat.service.DocumentTranslationService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,7 +12,6 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -39,9 +39,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
     private final ConfluenceClient confluenceClient;
     private final ConfluenceProperties confluenceProperties;
     private final ConfluenceToMarkdownService confluenceToMarkdownService;
-
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDirString;
+    private final RagProperties ragProperties;
 
     private Path EXPORT_DIR;
     private Path ASSETS_DIR;
@@ -51,7 +49,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
 
     @PostConstruct
     public void init() {
-        EXPORT_DIR = Path.of(exportDirString);
+        EXPORT_DIR = Path.of(ragProperties.getData().getExportDir());
         ASSETS_DIR = EXPORT_DIR.resolve("assets");
         STATE_FILE = EXPORT_DIR.resolve("sync_state.json");
     }
@@ -127,9 +125,7 @@ public class ConfluenceIncrementalScraper implements DocumentScraper {
             Path filePath = EXPORT_DIR.resolve(pageId + "_" + safeTitle + ".md");
             Files.writeString(filePath, sb.toString(), StandardCharsets.UTF_8);
 
-            // Delete cache file to force translation service to re-run
-            Path cacheFilePath = Path.of(filePath + DocumentBuilderService.ENGLISH_CACHE_FILE_SUFFIX);
-            Files.deleteIfExists(cacheFilePath);
+            DocumentTranslationService.deleteCacheFile(filePath);
 
             // Download attachments
             downloadAttachments(pageId);

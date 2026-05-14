@@ -55,7 +55,7 @@ aws:
 rag:
   data:
     export-dir: ${EXPORT_DIR:data_export}
-    transation:
+    translation:
       model-id: "eu.amazon.nova-pro-v1:0"
       temperature: 0.1
   rerank:

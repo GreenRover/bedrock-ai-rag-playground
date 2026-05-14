@@ -1,14 +1,15 @@
 package ch.sbb.tms.ssp.chat.controller;
 
+import ch.sbb.tms.ssp.chat.config.properties.RagProperties;
 import ch.sbb.tms.ssp.chat.scraper.BitbucketMarkdownScraper;
 import ch.sbb.tms.ssp.chat.scraper.ConfluenceIncrementalScraper;
 import ch.sbb.tms.ssp.chat.scraper.GithubMarkdownScraper;
 import ch.sbb.tms.ssp.chat.scraper.ScraperOrchestrator;
 import ch.sbb.tms.ssp.chat.service.BedrockMediaTranslationService;
 import ch.sbb.tms.ssp.chat.service.DocumentBuilderService;
+import ch.sbb.tms.ssp.chat.service.DocumentTranslationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.FileSystemUtils;
@@ -33,15 +34,14 @@ public class ScraperAdminController {
     private final ConfluenceIncrementalScraper confluenceIncrementalScraper;
     private final DocumentBuilderService corpusBuilderService;
     private final BedrockMediaTranslationService mediaTranslationService;
-
-    @Value("${rag.data.export-dir:data_export}")
-    private String exportDir;
+    private final DocumentTranslationService documentTranslationService;
+    private final RagProperties ragProperties;
 
     @PostMapping("/erase-export-dir")
     public ResponseEntity<String> eraseExportDir() {
-        log.info("REST request to erase export directory: {}", exportDir);
+        log.info("REST request to erase export directory: {}", ragProperties.getData().getExportDir());
         try {
-            Path exportPath = Paths.get(exportDir);
+            Path exportPath = Paths.get(ragProperties.getData().getExportDir());
             if (Files.exists(exportPath)) {
                 FileSystemUtils.deleteRecursively(exportPath);
                 log.info("Export directory erased.");
@@ -121,7 +121,8 @@ public class ScraperAdminController {
         log.info("REST request to translate assets...");
         try {
             mediaTranslationService.translateAllAssets();
-            return ResponseEntity.ok("All images was translated.");
+            documentTranslationService.translateAllMarkdowns();
+            return ResponseEntity.ok("All images and markdowns was translated.");
         } catch (Exception e) {
             log.error("Failed to translate images", e);
             return ResponseEntity.internalServerError().body("Failed: " + e.getMessage());
