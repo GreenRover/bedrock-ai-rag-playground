@@ -71,13 +71,13 @@ Alternatively, you can run specific scraper tasks by providing one or more of th
 - `--rebuild-rag`: Rebuilds the rag / PostgreSQL db.
 - `--erase-export-dir`: Erases the local export directory before downloading everything again.
 
-Since `./mvnw spring-boot:run` does not load `.env` files out of the box, you can load the variables into your shell environment first (e.g., in bash: `export $(grep -v '^#' .env | xargs)`), or use a tool like `dotenv-cli`.
+Since `mvn spring-boot:run` does not load `.env` files out of the box, you can load the variables into your shell environment first (e.g., in bash: `export $(grep -v '^#' .env | xargs)`), or use a tool like `dotenv-cli`.
 
 ```bash
 export $(grep -v '^#' .env | xargs)
-./mvnw spring-boot:run -Dspring-boot.run.arguments="--scrape-all"
+.mvn spring-boot:run -Dspring-boot.run.arguments="--scrape-all"
 # Or for specific tasks:
-# ./mvnw spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--translate-images,--rebuild-rag"
+# mvn spring-boot:run -Dspring-boot.run.arguments="--sync-confluence,--sync-github,--translate-images,--rebuild-rag"
 ```
 
 ## API Documentation

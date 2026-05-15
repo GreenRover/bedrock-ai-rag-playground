@@ -18,18 +18,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A custom implementation of {@link ContentRetriever} that performs a hybrid search in PostgreSQL.
- *
- * <p><b>Why it exists:</b> The default retrievers typically only support semantic vector search.
- * This class exists to combine semantic vector search (cosine distance) with keyword-based
- * full-text search (ts_rank_cd) natively in PostgreSQL using a single SQL query.</p>
- *
- * <p><b>What it provides / improves:</b></p>
+ * Custom implementation of {@link ContentRetriever} that performs hybrid search directly within PostgreSQL.
+ * <p>
+ * Combines semantic vector search (using cosine distance) and keyword-based full-text search (using ts_rank_cd)
+ * into a single SQL query. Standard retrievers {@link dev.langchain4j.store.embedding.pgvector.PgVectorEmbeddingStore} typically only support semantic vector searches.
+ * <p>
+ * <b>Core Benefits:</b>
  * <ul>
- *   <li><b>Better Retrieval Accuracy:</b> Combines the contextual understanding of vector embeddings
- *       with the exact keyword matching of full-text search.</li>
- *   <li><b>Performance:</b> Executes both search strategies and scores them within the database,
- *       reducing data transfer and application-side processing.</li>
+ *   <li><b>Better Retrieval Accuracy:</b> Vector search handles contextual understanding while full-text search
+ *       ensures exact keyword matching. Together, they provide results that are both conceptually relevant and
+ *       precisely matched to user keywords.</li>
+ *   <li><b>Improved Performance:</b> Both search strategies are executed and scored natively within the database,
+ *       drastically reducing data transfer over the network and minimizing application-side processing overhead.</li>
  * </ul>
  */
 @Slf4j
@@ -101,7 +101,14 @@ public class PostgresHybridRetriever implements ContentRetriever {
             return Content.from(TextSegment.from(text, metadata));
         }, vectorStr, vectorStr, queryText, queryText);
 
-        log.debug("Retrieved {} contents for query '{}'", ragQueryResult.size(), queryText);
+        if (log.isDebugEnabled()) {
+            String debugSql = sql
+                    .replaceFirst("\\?", "'" + vectorStr + "'")
+                    .replaceFirst("\\?", "'" + vectorStr + "'")
+                    .replaceFirst("\\?", "'" + queryText.replace("'", "''") + "'")
+                    .replaceFirst("\\?", "'" + queryText.replace("'", "''") + "'");
+            log.debug("Executing hybrid search SQL:\n{}", debugSql);
+        }
 
         return ragQueryResult;
     }
